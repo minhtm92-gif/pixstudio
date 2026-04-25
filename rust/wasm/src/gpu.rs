@@ -9,45 +9,48 @@ use masks::MaskFeatherPipeline;
 use serde::Deserialize;
 use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 
+/// Classifies the GPU path that initialization landed on, so the UI can decide
+/// whether to surface a degraded-rendering notice. This is the single source of
+/// truth — JS never calls `requestAdapter()` itself to figure this out.
+#[wasm_bindgen]
+#[derive(Copy, Clone)]
+pub enum GpuInitKind {
+    /// WebGPU on a hardware adapter.
+    Ready,
+    /// WebGPU but on a CPU/software adapter (e.g. SwiftShader). Preview will
+    /// likely be slow or blank.
+    SoftwareFallbackAdapter,
+    /// WebGPU was unavailable; we fell back to WebGL. Works but with reduced
+    /// capability and performance.
+    WebglFallback,
+}
+
 pub(crate) struct GpuRuntime {
     pub(crate) context: GpuContext,
     pub(crate) effects: EffectPipeline,
     pub(crate) masks: MaskFeatherPipeline,
+    kind: GpuInitKind,
 }
 
 thread_local! {
     static GPU_RUNTIME: RefCell<Option<GpuRuntime>> = const { RefCell::new(None) };
 }
 
-fn set_panic_hook() {
-    static SET_HOOK: std::sync::Once = std::sync::Once::new();
-    SET_HOOK.call_once(|| {
-        std::panic::set_hook(Box::new(|info| {
-            // Store the full panic message in window.__wasmPanic so the JS catch block
-            // can surface it instead of the opaque "Unreachable" WASM trap message.
-            if let Some(window) = web_sys::window() {
-                let _ = Reflect::set(
-                    &window,
-                    &JsValue::from_str("__wasmPanic"),
-                    &JsValue::from_str(&info.to_string()),
-                );
-            }
-            console_error_panic_hook::hook(info);
-        }));
-    });
-}
-
+/// Initializes the shared GPU runtime and reports which path it landed on.
+///
+/// Concurrent callers are expected to be serialized by the JS layer (it caches
+/// the returned promise). Without that, two parallel calls would each create a
+/// `GpuContext` and the second would silently overwrite the first.
 #[wasm_bindgen(js_name = initializeGpu)]
-pub async fn initialize_gpu() -> Result<(), JsValue> {
-    set_panic_hook();
-
-    if GPU_RUNTIME.with(|runtime| runtime.borrow().is_some()) {
-        return Ok(());
+pub async fn initialize_gpu() -> Result<GpuInitKind, JsValue> {
+    if let Some(kind) = GPU_RUNTIME.with(|runtime| runtime.borrow().as_ref().map(|r| r.kind)) {
+        return Ok(kind);
     }
 
     let context = GpuContext::new()
         .await
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let kind = classify_adapter(context.adapter());
     let effects = EffectPipeline::new(&context);
     let masks = MaskFeatherPipeline::new(&context);
 
@@ -56,10 +59,24 @@ pub async fn initialize_gpu() -> Result<(), JsValue> {
             context,
             effects,
             masks,
+            kind,
         }));
     });
 
-    Ok(())
+    Ok(kind)
+}
+
+fn classify_adapter(adapter: &wgpu::Adapter) -> GpuInitKind {
+    let info = adapter.get_info();
+    if info.backend == wgpu::Backend::Gl {
+        GpuInitKind::WebglFallback
+    } else if info.device_type == wgpu::DeviceType::Cpu {
+        GpuInitKind::SoftwareFallbackAdapter
+    } else {
+        // `DeviceType::Other` is bucketed with hardware adapters; some
+        // virtualized GPUs report this way and we have no better signal.
+        GpuInitKind::Ready
+    }
 }
 
 pub(crate) fn with_gpu_runtime<T>(

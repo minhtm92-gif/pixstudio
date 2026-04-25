@@ -1,6 +1,5 @@
 use bytemuck::{Pod, Zeroable};
 use gpu::{FULLSCREEN_SHADER_SOURCE, GpuContext};
-use wgpu::util::DeviceExt;
 
 const JFA_INIT_SHADER_SOURCE: &str = include_str!("shaders/jfa_init.wgsl");
 const JFA_STEP_SHADER_SOURCE: &str = include_str!("shaders/jfa_step.wgsl");
@@ -243,14 +242,11 @@ impl SdfPipeline {
                     },
                 ],
             });
-        let uniform_buffer =
-            context
-                .device()
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("gpu-sdf-uniform-buffer"),
-                    contents: uniform_buffer_bytes,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+        let uniform_buffer = context.create_buffer_with_data(
+            "gpu-sdf-uniform-buffer",
+            uniform_buffer_bytes,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let uniform_bind_group = context
             .device()
             .create_bind_group(&wgpu::BindGroupDescriptor {

@@ -12,8 +12,37 @@ import { useEditorActions } from "@/actions/use-editor-actions";
 import { loadFontAtlas } from "@/fonts/google-fonts";
 import {
 	initializeGpuRenderer,
-	isGpuAvailable,
+	type GpuRendererInitializationResult,
 } from "@/services/renderer/gpu-renderer";
+import type { EditorNoticeInput } from "@/core/managers/editor-notices-manager";
+
+const RENDERER_NOTICES: Record<
+	GpuRendererInitializationResult["kind"],
+	EditorNoticeInput | null
+> = {
+	ready: null,
+	"software-fallback-adapter": {
+		id: "software-fallback-adapter",
+		tone: "warning",
+		message:
+			"This browser is using a software-only graphics adapter. Preview rendering may fail or appear blank. If that happens, switch to a hardware-accelerated browser.",
+		dismissible: true,
+	},
+	"webgl-fallback": {
+		id: "webgl-fallback",
+		tone: "info",
+		message:
+			"WebGPU is unavailable in this browser, so OpenCut is rendering with a WebGL fallback. Performance and visual fidelity may be reduced.",
+		dismissible: true,
+	},
+	unavailable: {
+		id: "gpu-unavailable",
+		tone: "warning",
+		message:
+			"GPU rendering is unavailable in this browser. OpenCut may run with degraded rendering support. For the best experience, use a hardware-accelerated browser.",
+		dismissible: true,
+	},
+};
 
 interface EditorProviderProps {
 	projectId: string;
@@ -38,8 +67,12 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 		const loadProject = async () => {
 			try {
 				setIsLoading(true);
-				await initializeGpuRenderer();
-				editor.renderer.setDegraded(!isGpuAvailable());
+				const gpuInitializationResult = await initializeGpuRenderer();
+				const rendererNotice = RENDERER_NOTICES[gpuInitializationResult.kind];
+				editor.notices.setScopeNotices({
+					scope: "renderer",
+					notices: rendererNotice ? [rendererNotice] : [],
+				});
 				await editor.project.loadProject({ id: projectId });
 
 				if (cancelled) return;

@@ -3,7 +3,6 @@ use effects::{ApplyEffectsOptions, EffectPass, EffectPipeline, UniformValue};
 use gpu::{FULLSCREEN_SHADER_SOURCE, GpuContext, wgpu};
 use masks::{ApplyMaskFeatherOptions, MaskFeatherPipeline};
 use thiserror::Error;
-use wgpu::util::DeviceExt;
 
 use crate::{
     BlendMode,
@@ -589,23 +588,20 @@ impl Compositor {
                     },
                 ],
             });
-        let uniform_buffer =
-            context
-                .device()
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("compositor-layer-uniform-buffer"),
-                    contents: bytemuck::bytes_of(&LayerUniformBuffer {
-                        resolution: [width as f32, height as f32],
-                        center: [layer.transform.center_x, layer.transform.center_y],
-                        size: [layer.transform.width, layer.transform.height],
-                        rotation_radians: layer.transform.rotation_degrees.to_radians(),
-                        opacity: layer.opacity,
-                        flip_x: if layer.transform.flip_x { 1.0 } else { 0.0 },
-                        flip_y: if layer.transform.flip_y { 1.0 } else { 0.0 },
-                        _padding: [0.0; 2],
-                    }),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+        let uniform_buffer = context.create_buffer_with_data(
+            "compositor-layer-uniform-buffer",
+            bytemuck::bytes_of(&LayerUniformBuffer {
+                resolution: [width as f32, height as f32],
+                center: [layer.transform.center_x, layer.transform.center_y],
+                size: [layer.transform.width, layer.transform.height],
+                rotation_radians: layer.transform.rotation_degrees.to_radians(),
+                opacity: layer.opacity,
+                flip_x: if layer.transform.flip_x { 1.0 } else { 0.0 },
+                flip_y: if layer.transform.flip_y { 1.0 } else { 0.0 },
+                _padding: [0.0; 2],
+            }),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let uniform_bind_group = context
             .device()
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -691,17 +687,14 @@ impl Compositor {
                     },
                 ],
             });
-        let uniform_buffer =
-            context
-                .device()
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("compositor-mask-uniform-buffer"),
-                    contents: bytemuck::bytes_of(&MaskUniformBuffer {
-                        inverted: if inverted { 1.0 } else { 0.0 },
-                        _padding: [0.0; 3],
-                    }),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+        let uniform_buffer = context.create_buffer_with_data(
+            "compositor-mask-uniform-buffer",
+            bytemuck::bytes_of(&MaskUniformBuffer {
+                inverted: if inverted { 1.0 } else { 0.0 },
+                _padding: [0.0; 3],
+            }),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let uniform_bind_group = context
             .device()
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -788,17 +781,14 @@ impl Compositor {
                     },
                 ],
             });
-        let uniform_buffer =
-            context
-                .device()
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("compositor-blend-uniform-buffer"),
-                    contents: bytemuck::bytes_of(&BlendUniformBuffer {
-                        blend_mode: blend_mode.shader_code(),
-                        _padding: [0; 3],
-                    }),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+        let uniform_buffer = context.create_buffer_with_data(
+            "compositor-blend-uniform-buffer",
+            bytemuck::bytes_of(&BlendUniformBuffer {
+                blend_mode: blend_mode.shader_code(),
+                _padding: [0; 3],
+            }),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let uniform_bind_group = context
             .device()
             .create_bind_group(&wgpu::BindGroupDescriptor {

@@ -1,5 +1,3 @@
-use wgpu::util::DeviceExt;
-
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 use std::cell::RefCell;
 
@@ -37,6 +35,52 @@ const FULLSCREEN_QUAD_POSITIONS: [[f32; 2]; 6] = [
     [1.0, 1.0],
 ];
 
+/// Creates a buffer and uploads `contents` via `queue.write_buffer` instead of
+/// `mapped_at_creation: true`. Chrome's WebGPU backend has been rejecting the
+/// mapped-at-creation path in our render loop, so this helper exists to keep
+/// every buffer creation on the queue-write path.
+///
+/// `usage` MUST include `COPY_DST` whenever `contents` is non-empty; otherwise
+/// `queue.write_buffer` will fail validation at runtime.
+fn create_buffer_with_data(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    label: &'static str,
+    contents: &[u8],
+    usage: wgpu::BufferUsages,
+) -> wgpu::Buffer {
+    debug_assert!(
+        contents.is_empty() || usage.contains(wgpu::BufferUsages::COPY_DST),
+        "create_buffer_with_data requires COPY_DST when contents are non-empty (label: {label})",
+    );
+
+    let unpadded_size = contents.len() as wgpu::BufferAddress;
+    let padded_size = if contents.is_empty() {
+        0
+    } else {
+        let align_mask = wgpu::COPY_BUFFER_ALIGNMENT - 1;
+        ((unpadded_size + align_mask) & !align_mask).max(wgpu::COPY_BUFFER_ALIGNMENT)
+    };
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: padded_size,
+        usage,
+        mapped_at_creation: false,
+    });
+
+    if !contents.is_empty() {
+        if padded_size == unpadded_size {
+            queue.write_buffer(&buffer, 0, contents);
+        } else {
+            let mut padded_contents = vec![0; padded_size as usize];
+            padded_contents[..unpadded_size as usize].copy_from_slice(contents);
+            queue.write_buffer(&buffer, 0, &padded_contents);
+        }
+    }
+
+    buffer
+}
+
 pub struct GpuContext {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
@@ -68,11 +112,13 @@ impl GpuContext {
         } else {
             wgpu::TextureFormat::Bgra8Unorm
         };
-        let fullscreen_quad = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("gpu-fullscreen-quad-buffer"),
-            contents: bytemuck::cast_slice(&FULLSCREEN_QUAD_POSITIONS),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let fullscreen_quad = create_buffer_with_data(
+            &device,
+            &queue,
+            "gpu-fullscreen-quad-buffer",
+            bytemuck::cast_slice(&FULLSCREEN_QUAD_POSITIONS),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
         let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gpu-linear-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -315,6 +361,15 @@ impl GpuContext {
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         })
+    }
+
+    pub fn create_buffer_with_data(
+        &self,
+        label: &'static str,
+        contents: &[u8],
+        usage: wgpu::BufferUsages,
+    ) -> wgpu::Buffer {
+        create_buffer_with_data(&self.device, &self.queue, label, contents, usage)
     }
 
     pub fn instance(&self) -> &wgpu::Instance {

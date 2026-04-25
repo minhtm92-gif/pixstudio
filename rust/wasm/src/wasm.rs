@@ -7,6 +7,8 @@ mod gpu;
 #[cfg(target_arch = "wasm32")]
 mod masks;
 #[cfg(target_arch = "wasm32")]
+mod panic;
+#[cfg(target_arch = "wasm32")]
 mod perf;
 
 #[cfg(target_arch = "wasm32")]

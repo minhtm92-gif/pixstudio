@@ -6,7 +6,6 @@ import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/media/audio";
 import { formatTimecode } from "opencut-wasm";
-import { frameRateToFloat } from "@/fps/utils";
 import { downloadBlob } from "@/utils/browser";
 
 type SnapshotResult =
@@ -15,20 +14,9 @@ type SnapshotResult =
 
 export class RendererManager {
 	private renderTree: RootNode | null = null;
-	private _isDegraded = false;
 	private listeners = new Set<() => void>();
 
 	constructor(private editor: EditorCore) {}
-
-	get isDegraded(): boolean {
-		return this._isDegraded;
-	}
-
-	setDegraded(degraded: boolean): void {
-		if (this._isDegraded === degraded) return;
-		this._isDegraded = degraded;
-		this.notify();
-	}
 
 	setRenderTree({ renderTree }: { renderTree: RootNode | null }): void {
 		this.renderTree = renderTree;
@@ -122,7 +110,9 @@ export class RendererManager {
 				return { success: false, error: "Failed to create image" };
 			}
 
-			const timecode = formatTimecode({ time: renderTime, rate: fps })!.replace(/:/g, "-");
+			const timecode =
+				formatTimecode({ time: renderTime, rate: fps })?.replace(/:/g, "-") ??
+				"unknown-time";
 			const safeName =
 				activeProject.metadata.name.replace(/[<>:"/\\|?*]/g, "-").trim() ||
 				"snapshot";

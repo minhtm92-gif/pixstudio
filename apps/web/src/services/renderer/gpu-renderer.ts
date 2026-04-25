@@ -1,30 +1,53 @@
 import {
 	applyEffectPasses,
 	applyMaskFeather as applyMaskFeatherWasm,
+	GpuInitKind,
 	initializeGpu,
 } from "opencut-wasm";
 import type { EffectPass, EffectUniformValue } from "@/effects/types";
 
-let gpuAvailable = false;
-let initPromise: Promise<void> | null = null;
+export type GpuRendererInitializationResult =
+	| { kind: "ready" }
+	| { kind: "software-fallback-adapter" }
+	| { kind: "webgl-fallback" }
+	| { kind: "unavailable"; message: string };
 
-export function initializeGpuRenderer(): Promise<void> {
+type GpuInitDiscriminator = Exclude<
+	GpuRendererInitializationResult,
+	{ kind: "unavailable" }
+>["kind"];
+
+let gpuAvailable = false;
+let initPromise: Promise<GpuRendererInitializationResult> | null = null;
+
+export function initializeGpuRenderer(): Promise<GpuRendererInitializationResult> {
 	if (!initPromise) {
 		initPromise = initializeGpu()
-			.then(() => {
+			.then((kind): GpuRendererInitializationResult => {
 				gpuAvailable = true;
+				return { kind: gpuInitKindToDiscriminator(kind) };
 			})
-			.catch((error: unknown) => {
+			.catch((error: unknown): GpuRendererInitializationResult => {
 				gpuAvailable = false;
 				const message = error instanceof Error ? error.message : String(error);
 				console.warn(`GPU renderer unavailable: ${message}`);
+				return { kind: "unavailable", message };
 			});
 	}
 	return initPromise;
 }
 
-export function isGpuAvailable(): boolean {
-	return gpuAvailable;
+function gpuInitKindToDiscriminator(kind: GpuInitKind): GpuInitDiscriminator {
+	switch (kind) {
+		case GpuInitKind.Ready:
+			return "ready";
+		case GpuInitKind.SoftwareFallbackAdapter:
+			return "software-fallback-adapter";
+		case GpuInitKind.WebglFallback:
+			return "webgl-fallback";
+	}
+	const unhandled: never = kind;
+	throw new Error(`Unhandled GpuInitKind: ${unhandled}`);
 }
 
 export const gpuRenderer = {

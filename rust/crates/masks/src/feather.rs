@@ -1,6 +1,5 @@
 use bytemuck::{Pod, Zeroable};
 use gpu::{FULLSCREEN_SHADER_SOURCE, GpuContext};
-use wgpu::util::DeviceExt;
 
 use crate::SdfPipeline;
 
@@ -234,18 +233,15 @@ impl MaskFeatherPipeline {
                     },
                 ],
             });
-        let uniform_buffer =
-            context
-                .device()
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("gpu-mask-distance-uniform-buffer"),
-                    contents: bytemuck::bytes_of(&DistanceUniformBuffer {
-                        resolution: [width as f32, height as f32],
-                        feather_half: feather / 2.0,
-                        _padding: 0.0,
-                    }),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+        let uniform_buffer = context.create_buffer_with_data(
+            "gpu-mask-distance-uniform-buffer",
+            bytemuck::bytes_of(&DistanceUniformBuffer {
+                resolution: [width as f32, height as f32],
+                feather_half: feather / 2.0,
+                _padding: 0.0,
+            }),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let uniform_bind_group = context
             .device()
             .create_bind_group(&wgpu::BindGroupDescriptor {
