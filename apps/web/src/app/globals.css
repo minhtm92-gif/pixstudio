@@ -8,6 +8,13 @@
 @plugin "tailwindcss-animate";
 
 :root {
+  /* PXL brand tokens (D39 chốt 2026-04-30): blue gradient navy → royal → sky */
+  --pxl-navy: hsl(220, 70%, 40%);  /* #1E40AF */
+  --pxl-royal: hsl(217, 91%, 60%); /* #3B82F6 */
+  --pxl-sky: hsl(204, 90%, 60%);   /* #3DA8F5 */
+  --pxl-gradient-primary: linear-gradient(135deg, hsl(220, 70%, 40%) 0%, hsl(217, 91%, 60%) 50%, hsl(204, 90%, 60%) 100%);
+  --pxl-gradient-hero: linear-gradient(180deg, hsl(220, 70%, 40%) 0%, hsl(204, 90%, 60%) 100%);
+
   --background: hsl(0, 0%, 100%);
   --foreground: hsl(0 0% 11%);
   --card: hsl(0, 0%, 100%);
@@ -15,11 +22,11 @@
   --popover: hsl(0, 0%, 100%);
   --popover-hover: hsl(0, 0%, 96%);
   --popover-foreground: hsl(0 0% 2%);
-  --primary: hsl(200, 90%, 52%);
+  --primary: hsl(217, 91%, 60%); /* PXL royal #3B82F6 */
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(204, 100%, 97%);
-  --secondary-border: hsl(204, 100%, 94%);
-  --secondary-foreground: hsl(200, 98%, 39%);
+  --secondary: hsl(217, 100%, 97%);
+  --secondary-border: hsl(217, 100%, 94%);
+  --secondary-foreground: hsl(220, 70%, 40%); /* PXL navy */
   --muted: hsl(0 0% 85.1%);
   --muted-foreground: hsl(0 0% 50%);
   --accent: hsl(0, 0%, 96%);
@@ -55,9 +62,9 @@
   --card: hsl(0, 0%, 98%);
   --card-foreground: hsl(0 0% 13%);
   --primary-foreground: hsl(0, 0%, 98%);
-  --secondary: hsl(204, 100%, 95%);
-  --secondary-border: hsl(204, 100%, 92%);
-  --secondary-foreground: hsl(200, 98%, 37%);
+  --secondary: hsl(217, 100%, 95%);
+  --secondary-border: hsl(217, 100%, 92%);
+  --secondary-foreground: hsl(220, 70%, 36%);
   --muted: hsl(0 0% 83.1%);
   --muted-foreground: hsl(0 0% 48%);
   --accent: hsl(0, 0%, 93%);
@@ -77,9 +84,9 @@
   --popover: hsl(0, 0%, 5%);
   --popover-hover: hsl(0, 0%, 13%);
   --popover-foreground: hsl(0 0% 95%);
-  --secondary: hsl(204, 100%, 12%);
-  --secondary-border: hsl(204, 100%, 15%);
-  --secondary-foreground: hsl(200, 98%, 61%);
+  --secondary: hsl(217, 100%, 12%);
+  --secondary-border: hsl(217, 100%, 15%);
+  --secondary-foreground: hsl(204, 90%, 65%); /* PXL sky in dark mode */
   --muted: hsl(0 0% 20%);
   --accent: hsl(0, 0%, 14%);
   --accent-foreground: hsl(0 0% 95%);
@@ -104,9 +111,9 @@
   --foreground: hsl(0 0% 85%);
   --card: hsl(0, 0%, 10%);
   --card-foreground: hsl(0 0% 85%);
-  --secondary: hsl(204, 67%, 9%);
-  --secondary-border: hsl(204, 100%, 14%);
-  --secondary-foreground: hsl(200, 98%, 63%);
+  --secondary: hsl(217, 67%, 9%);
+  --secondary-border: hsl(217, 100%, 14%);
+  --secondary-foreground: hsl(204, 90%, 65%);
   --muted: hsl(0 0% 22%);
   --accent: hsl(0, 0%, 15%);
   --accent-foreground: hsl(0 0% 93%);
