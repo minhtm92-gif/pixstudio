@@ -5,6 +5,7 @@
 
 import type { AICapability, AIProvider } from "./types.ts";
 import { createSeedance20Provider } from "./providers/seedance-2-0.ts";
+import { createElevenLabsTTSProvider } from "./providers/elevenlabs-tts.ts";
 
 export interface RegistryConfig {
   /** Doppler-injected secrets at boot */
@@ -52,9 +53,13 @@ export class ProviderRegistry {
     // TODO Sprint 2: register createNanoBananaStdProvider({ apiKey: config.secrets.GEMINI_API_KEY })
     // TODO Sprint 2: register createNanoBananaProProvider({ apiKey: config.secrets.GEMINI_API_KEY })
 
-    // === Voice ===
-    // TODO Sprint 1: register createElevenLabsTTSProvider({ apiKey: config.secrets.ELEVENLABS_API_KEY })
-    // TODO Sprint 1: register createElevenLabsScribeProvider({ apiKey: config.secrets.ELEVENLABS_API_KEY })
+    // === Voice (ElevenLabs — D29) ===
+    if (config.secrets.ELEVENLABS_API_KEY) {
+      this.register(
+        createElevenLabsTTSProvider({ apiKey: config.secrets.ELEVENLABS_API_KEY }),
+      );
+      // TODO Sprint 1: register createElevenLabsScribeProvider (stt.transcribe — D30)
+    }
 
     // === Self-host GPU pipelines (Demucs / SAM 2 / Real-ESRGAN / ComfyUI / Whisper) ===
     // TODO Phase 2+: register createDemucsProvider, createSAM2Provider, etc.

@@ -3,7 +3,7 @@
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
-			"outputs": [".next/**", "!.next/cache/**"],
+			"outputs": [".next/**", "!.next/cache/**", "dist/**"],
 			"env": [
 				"NODE_ENV",
 				"NEXT_PUBLIC_SITE_URL",
@@ -14,8 +14,31 @@
 				"UPSTASH_REDIS_REST_TOKEN",
 				"MARBLE_WORKSPACE_KEY",
 				"FREESOUND_CLIENT_ID",
-				"FREESOUND_API_KEY"
+				"FREESOUND_API_KEY",
+				"PORT",
+				"HOST",
+				"REDIS_URL",
+				"CORS_ORIGINS",
+				"NEXTAUTH_SECRET",
+				"R2_ACCESS_KEY_ID",
+				"R2_SECRET_ACCESS_KEY",
+				"R2_ENDPOINT_URL",
+				"R2_ACCOUNT_ID",
+				"GEMINI_API_KEY",
+				"BYTEPLUS_ACCESS_KEY",
+				"BYTEPLUS_SECRET_KEY",
+				"ELEVENLABS_API_KEY",
+				"GITHUB_TOKEN",
+				"DO_API_TOKEN"
 			]
+		},
+		"typecheck": {
+			"dependsOn": ["^typecheck"],
+			"outputs": ["*.tsbuildinfo"]
+		},
+		"test": {
+			"dependsOn": ["^build"],
+			"outputs": ["coverage/**"]
 		},
 		"check-types": {
 			"dependsOn": ["^check-types"]
