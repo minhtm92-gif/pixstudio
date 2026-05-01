@@ -9,6 +9,9 @@ import { createElevenLabsTTSProvider } from "./providers/elevenlabs-tts.ts";
 import { createElevenLabsScribeProvider } from "./providers/elevenlabs-scribe.ts";
 import { createNanoBananaStdProvider } from "./providers/nano-banana-std.ts";
 import { createGeminiLLMProvider } from "./providers/gemini-llm.ts";
+import { createVeo3Provider } from "./providers/veo-3.ts";
+import { createKling30Provider } from "./providers/kling-3-0.ts";
+import { createDoInferenceProvider } from "./providers/do-inference.ts";
 
 export interface RegistryConfig {
   /** Doppler-injected secrets at boot */
@@ -20,6 +23,8 @@ export interface RegistryConfig {
     DO_INFERENCE_TOKEN?: string;
     FAL_API_KEY?: string;
     DEEPGRAM_API_KEY?: string;
+    /** Fallback to inference token (some DO accounts use single key) */
+    DO_INFERENCE_BASE_URL?: string;
   };
 }
 
@@ -53,19 +58,25 @@ export class ProviderRegistry {
       );
     }
 
-    // === Gemini API (image gen + LLM secondary fallback per D40) ===
+    // === Gemini API (image gen + LLM secondary + Veo 3 video premium) ===
     if (config.secrets.GEMINI_API_KEY) {
       this.register(createNanoBananaStdProvider({ apiKey: config.secrets.GEMINI_API_KEY }));
       this.register(createGeminiLLMProvider({ apiKey: config.secrets.GEMINI_API_KEY }));
+      this.register(createVeo3Provider({ apiKey: config.secrets.GEMINI_API_KEY }));
       // TODO Sprint 2: createNanoBananaProProvider (gemini-2.5-pro-image)
-      // TODO Sprint 2: createVeo3Provider (Max tier T2V premium)
     }
 
     // === LLM primary via DO Inference Engine (per ADR-002) ===
-    // TODO Sprint 1: createDoInferenceProvider({ token: config.secrets.DO_INFERENCE_TOKEN })
+    if (config.secrets.DO_INFERENCE_TOKEN) {
+      this.register(
+        createDoInferenceProvider({ modelAccessKey: config.secrets.DO_INFERENCE_TOKEN }),
+      );
+    }
 
-    // === Video transition ===
-    // TODO Sprint 2: createKling30Provider({ apiKey: config.secrets.FAL_API_KEY })
+    // === Video transition (Kling 3.0 via fal.ai) ===
+    if (config.secrets.FAL_API_KEY) {
+      this.register(createKling30Provider({ apiKey: config.secrets.FAL_API_KEY }));
+    }
 
     // === Self-host GPU pipelines (Demucs / SAM 2 / Real-ESRGAN / ComfyUI / Whisper) ===
     // TODO Phase 2+: register createDemucsProvider, createSAM2Provider, etc.
