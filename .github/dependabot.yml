@@ -1,0 +1,45 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Ho_Chi_Minh
+    open-pull-requests-limit: 5
+    groups:
+      fastify:
+        patterns: ["@fastify/*", "fastify*"]
+      next:
+        patterns: ["next", "next-*", "@next/*"]
+      ai-vendors:
+        patterns: ["@anthropic-ai/sdk", "elevenlabs", "@google/generative-ai"]
+      types:
+        patterns: ["@types/*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Pin React to OpenCut's chosen version — bump only after upstream rebase
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "@types/react"
+      - dependency-name: "@types/react-dom"
+
+  - package-ecosystem: cargo
+    directory: /packages/compositor
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2

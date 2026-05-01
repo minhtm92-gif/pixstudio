@@ -1,0 +1,235 @@
+// PixStudio Prisma schema — Sprint 1 minimum (workspace + user + project + asset)
+// Phase 2+ adds: ai_jobs, usage_tracker, stock_accounts, brand_kits, templates,
+//                rag_documents (pgvector), comments, versions, presence
+// Reference: docs/cto/CTO-TECH-STACK-v04.md §3 (18 model schema)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector"), uuidOssp(map: "uuid-ossp")]
+}
+
+// =============================================================================
+// AUTH (better-auth integration — Sprint 1)
+// =============================================================================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  name          String?
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  accounts          Account[]
+  sessions          Session[]
+  workspaceMembers  WorkspaceMember[]
+  ownedWorkspaces   Workspace[]      @relation("WorkspaceOwner")
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  providerId        String
+  accountId         String
+  password          String?  // hashed via better-auth
+  accessToken       String?
+  refreshToken      String?
+  accessTokenExpiresAt DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope             String?
+  idToken           String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@map("accounts")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Verification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@map("verifications")
+}
+
+// =============================================================================
+// WORKSPACE + MEMBERSHIP (Sprint 1)
+// =============================================================================
+
+enum BillingTier {
+  STANDARD
+  PRO
+  MAX
+}
+
+enum WorkspaceRegion {
+  VN_SG  // APAC default Phase 1
+  EU
+  US
+}
+
+enum MemberRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model Workspace {
+  id           String          @id @default(uuid())
+  name         String
+  slug         String          @unique
+  ownerId      String
+  region       WorkspaceRegion @default(VN_SG)
+  billingTier  BillingTier     @default(STANDARD)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  owner    User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members  WorkspaceMember[]
+  projects Project[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String     @id @default(uuid())
+  workspaceId String
+  userId      String
+  role        MemberRole @default(EDITOR)
+  joinedAt    DateTime   @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+// =============================================================================
+// PROJECT (Sprint 1)
+// =============================================================================
+
+model Project {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  name         String
+  description  String?
+  yjsDocId     String?  // Phase 3 collab — reserved Sprint 1, populated when Yjs ships
+  thumbnailKey String?  // R2 key
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastEditedAt DateTime @default(now())
+  archived     Boolean  @default(false)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assets    Asset[]
+
+  @@index([workspaceId])
+  @@index([lastEditedAt])
+  @@map("projects")
+}
+
+// =============================================================================
+// ASSET (Sprint 1 minimal — expand Sprint 2 với AI gen + stock pool)
+// =============================================================================
+
+enum AssetType {
+  VIDEO
+  IMAGE
+  MUSIC
+  CHARACTER
+  SCRIPT
+  TTS_AUDIO        // Phase 2+ ElevenLabs output
+  AI_GEN_IMAGE     // Phase 2+ Nano Banana / Seedream
+  AI_GEN_VIDEO     // Phase 2+ Seedance / Veo / Kling
+}
+
+enum AssetSource {
+  USER_UPLOAD
+  STOCK_POOL       // Phase 2+ admin pool
+  AI_GEN           // Phase 2+ generative
+  TEMPLATE         // Phase 2+ template clone
+}
+
+model Asset {
+  id           String      @id @default(uuid())
+  projectId    String
+  type         AssetType
+  source       AssetSource @default(USER_UPLOAD)
+  name         String
+  r2Key        String      // bucket/path in pxs-vn-sg-uploads
+  mimeType     String
+  sizeBytes    BigInt
+  durationMs   Int?        // for video/audio
+  width        Int?        // for video/image
+  height       Int?        // for video/image
+  metadata     Json?       // type-specific (codec, fps, bitrate, license_id, etc.)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, type])
+  @@map("assets")
+}
+
+// =============================================================================
+// Phase 2+ models (commented stubs — uncomment + migrate when Sprint reaches feature)
+// =============================================================================
+
+// model AIJob {
+//   id            String   @id @default(uuid())
+//   projectId     String?
+//   userId        String
+//   workspaceId   String
+//   capability    String   // "video.imageToVideo", "audio.separate", etc. per ADR-001
+//   providerId    String   // "seedance-2-0", "veo-3", etc.
+//   inputJson     Json
+//   outputJson    Json?
+//   status        String   // "pending" | "running" | "succeeded" | "failed"
+//   costUsd       Decimal? @db.Decimal(10, 4)
+//   startedAt     DateTime @default(now())
+//   completedAt   DateTime?
+//   errorMessage  String?
+//
+//   @@index([userId, capability])
+//   @@map("ai_jobs")
+// }
+
+// model UsageTracker { ... }       // Phase 2+ tier quota tracking
+// model StockAccount { ... }        // Phase 2+ admin pool 10-20 iStock+Envato+Shutter
+// model BrandKit { ... }            // Phase 3+ Pro/Max tier brand kit
+// model Template { ... }            // Phase 1+ Templates inventory 30
+// model RagDocument { ... }         // Phase 2+ Crossian RAG (vector pgvector embedding)
+// model Comment { ... }             // Phase 3+ Frame.io style
+// model Version { ... }             // Phase 3+ project version history

@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  DO_NOT_TRACK: 1
+
+jobs:
+  build:
+    name: Typecheck + Lint + Test + Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v3
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint (Biome)
+        run: bun run lint
+
+      - name: Test (with Doppler dev secrets)
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_CI }}
+          DOPPLER_PROJECT: pxs-prod
+          DOPPLER_CONFIG: dev
+        run: doppler run -- bun test
+
+      - name: Build web
+        run: bun run --cwd apps/web build
+
+      - name: Build api
+        run: bun run --cwd apps/api typecheck
+
+  rust-compositor:
+    name: Rust compositor (cargo check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ hashFiles('packages/compositor/Cargo.toml') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/compositor
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+        working-directory: packages/compositor
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: packages/compositor
+
+      - name: cargo check
+        run: cargo check --all-targets
+        working-directory: packages/compositor
+
+  upstream-drift-check:
+    name: OpenCut upstream drift report
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add OpenCut upstream remote
+        run: |
+          git remote add upstream https://github.com/OpenCut-app/OpenCut.git
+          git fetch upstream main --depth=200
+
+      - name: Drift report (count commits ahead)
+        run: |
+          AHEAD=$(git rev-list --count upstream/main..HEAD)
+          BEHIND=$(git rev-list --count HEAD..upstream/main)
+          echo "## Upstream drift" >> $GITHUB_STEP_SUMMARY
+          echo "- Commits ahead of upstream: **$AHEAD**" >> $GITHUB_STEP_SUMMARY
+          echo "- Commits behind upstream:   **$BEHIND**" >> $GITHUB_STEP_SUMMARY
+          if [ "$BEHIND" -gt 150 ]; then
+            echo "::warning::Behind upstream by $BEHIND commits — schedule rebase week per UPSTREAM.md §3"
+          fi

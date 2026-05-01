@@ -1,0 +1,87 @@
+# Local dev infra cho PixStudio — anh paste vào pixstudio/ root sau fork Day 1
+# Per dev-setup-windows.md §4.2
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml ps
+#   docker compose -f docker-compose.dev.yml logs -f
+#   docker compose -f docker-compose.dev.yml down            # stop, keep volumes
+#   docker compose -f docker-compose.dev.yml down -v         # stop, drop volumes (reset)
+
+services:
+  postgres:
+    # pgvector/pgvector includes pgvector extension pre-built on top of postgres:16
+    # (postgres:16-alpine không có pgvector — em verified Day 0 PM)
+    image: pgvector/pgvector:pg16
+    container_name: pxs-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pixstudio
+      POSTGRES_PASSWORD: dev_local_only
+      POSTGRES_DB: pixstudio_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pxs_pg_data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pixstudio -d pixstudio_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pxs-redis-dev
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - pxs_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: pgvector extension via separate image (or use postgres + CREATE EXTENSION)
+  # Uncomment when implementing RAG features Phase 2+
+  # pgvector:
+  #   image: pgvector/pgvector:pg16
+  #   ...
+
+  # Optional: Adminer cho DB inspection during dev
+  adminer:
+    image: adminer:latest
+    container_name: pxs-adminer-dev
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+
+  # Optional: RedisInsight cho Redis inspection during dev
+  redisinsight:
+    image: redislabs/redisinsight:latest
+    container_name: pxs-redisinsight-dev
+    restart: unless-stopped
+    ports:
+      - "8082:8001"
+    depends_on:
+      - redis
+
+volumes:
+  pxs_pg_data:
+    name: pxs_pg_data_dev
+  pxs_redis_data:
+    name: pxs_redis_data_dev
+
+# Notes:
+# - Postgres password "dev_local_only" — local dev only, KHÔNG dùng prod (Doppler-managed)
+# - Adminer at http://localhost:8081 → choose PostgreSQL, server=postgres, user=pixstudio, db=pixstudio_dev
+# - RedisInsight at http://localhost:8082 → add Redis at host=redis port=6379
+# - First run: postgres init.sql tự execute. Edit init-postgres.sql trong scripts/ to seed schema.
+# - Phase 2+ thêm pgvector cho Crossian RAG embeddings

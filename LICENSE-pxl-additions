@@ -1,0 +1,71 @@
+PixStudio Proprietary Additions License
+========================================
+
+Copyright (c) 2026 PixelxLab (Minh "Alex" Trần)
+
+This LICENSE-pxl-additions covers ONLY the following directories within this
+repository (the "PXL Additions"):
+
+- packages/ai-services/
+- packages/collab/
+- packages/brand/
+- packages/crossian-rag/  (if present — Crossian Knowledge RAG layer)
+- apps/web/src/components/admin/
+- apps/web/src/app/api/admin/
+- apps/web/src/app/api/ai/
+- docs/cto/
+- docs/adr/
+- docs/preview/
+
+All other code, including but not limited to apps/web/ (excluding subdirectories
+above), apps/api/, apps/desktop/, packages/compositor/, packages/timeline/,
+packages/ui/ (excluding PXL brand tokens), packages/keyframe/, and any file not
+explicitly listed above, is governed by the upstream OpenCut MIT license — see
+LICENSE.
+
+Terms for PXL Additions:
+========================
+
+1. INTERNAL USE ONLY. The PXL Additions are licensed for use exclusively within
+   the PixelxLab organization and its contracted partners ("đối tác"). Public
+   commercial use, redistribution, or public open-source release is prohibited
+   without explicit written permission from PixelxLab.
+
+2. NO REDISTRIBUTION. You may not copy, modify, merge, publish, distribute,
+   sublicense, or sell copies of the PXL Additions outside PixelxLab + đối tác
+   scope.
+
+3. NO PUBLIC FORK. You may not create public forks of this repository that
+   include the PXL Additions. Forks must remove all PXL Additions before
+   public publication.
+
+4. CONTRIBUTOR ASSIGNMENT. Any contribution to the PXL Additions assigns
+   copyright to PixelxLab. Contributors retain right to use their contributions
+   elsewhere subject to OpenCut MIT terms for non-PXL code.
+
+5. NO WARRANTY. THE PXL ADDITIONS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+6. CROSSIAN KNOWLEDGE. The Crossian Knowledge RAG layer (if present) inherits
+   from sanitized methodology + frameworks (AIDA / FAB / PAS / JTBD) + ad copy
+   examples. Crossian Knowledge is portable expertise from former Crossian
+   employees who joined PixelxLab — use is permitted under personal-knowledge
+   doctrine. PixelxLab is not Crossian; Crossian is a competing entity whose
+   IP is not claimed.
+
+7. AI PROVIDER VENDOR LOCK. PXL Additions integrate with the locked AI vendor
+   mesh (per ADR-001): DigitalOcean Inference Engine, Byteplus (Seedance/Seedream),
+   Google Gemini API (Veo 3, Nano Banana), fal.ai (Kling), ElevenLabs (TTS+STT),
+   and self-hosted GPU pipelines (Demucs/SAM 2/Real-ESRGAN/RIFE/ComfyUI/Whisper).
+   Adding new AI vendors requires ADR + CEO approval per CLAUDE.md rule 4.
+
+8. TERMINATION. Breach of any term above terminates rights granted under this
+   license. PixelxLab reserves all rights not expressly granted.
+
+9. JURISDICTION. This license is governed by Vietnamese law. Disputes resolved
+   in Hanoi or Ho Chi Minh City courts.
+
+For the OpenCut MIT-licensed portions of this repository, see LICENSE (root).
+
+For questions: minhtm92@gmail.com (Alex Trần, Founder PixelxLab)

@@ -1,0 +1,14 @@
+{
+  "name": "@pixstudio/brand",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PXL design tokens — blue gradient + 3-square logo mark + Inter+Lora fonts. Per D39.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens": "./src/tokens.ts",
+    "./logo.svg": "./src/logo.svg",
+    "./tokens.css": "./src/tokens.css"
+  }
+}
