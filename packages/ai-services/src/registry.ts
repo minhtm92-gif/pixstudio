@@ -6,6 +6,9 @@
 import type { AICapability, AIProvider } from "./types.ts";
 import { createSeedance20Provider } from "./providers/seedance-2-0.ts";
 import { createElevenLabsTTSProvider } from "./providers/elevenlabs-tts.ts";
+import { createElevenLabsScribeProvider } from "./providers/elevenlabs-scribe.ts";
+import { createNanoBananaStdProvider } from "./providers/nano-banana-std.ts";
+import { createGeminiLLMProvider } from "./providers/gemini-llm.ts";
 
 export interface RegistryConfig {
   /** Doppler-injected secrets at boot */
@@ -40,26 +43,29 @@ export class ProviderRegistry {
       // TODO Sprint 2+: register Seedream (image gen alt) — same Byteplus channel
     }
 
-    // === LLM via DO Inference Engine (Anthropic + OpenAI + fal models unified) ===
-    // TODO Sprint 1: register createDoInferenceProvider({ token: config.secrets.DO_INFERENCE_TOKEN })
-
-    // === Video gen premium ===
-    // TODO Sprint 2: register createVeo3Provider({ apiKey: config.secrets.GEMINI_API_KEY })
-
-    // === Video transition ===
-    // TODO Sprint 2: register createKling30Provider({ apiKey: config.secrets.FAL_API_KEY })
-
-    // === Image gen ===
-    // TODO Sprint 2: register createNanoBananaStdProvider({ apiKey: config.secrets.GEMINI_API_KEY })
-    // TODO Sprint 2: register createNanoBananaProProvider({ apiKey: config.secrets.GEMINI_API_KEY })
-
-    // === Voice (ElevenLabs — D29) ===
+    // === Voice (ElevenLabs — D29 + D30) ===
     if (config.secrets.ELEVENLABS_API_KEY) {
       this.register(
         createElevenLabsTTSProvider({ apiKey: config.secrets.ELEVENLABS_API_KEY }),
       );
-      // TODO Sprint 1: register createElevenLabsScribeProvider (stt.transcribe — D30)
+      this.register(
+        createElevenLabsScribeProvider({ apiKey: config.secrets.ELEVENLABS_API_KEY }),
+      );
     }
+
+    // === Gemini API (image gen + LLM secondary fallback per D40) ===
+    if (config.secrets.GEMINI_API_KEY) {
+      this.register(createNanoBananaStdProvider({ apiKey: config.secrets.GEMINI_API_KEY }));
+      this.register(createGeminiLLMProvider({ apiKey: config.secrets.GEMINI_API_KEY }));
+      // TODO Sprint 2: createNanoBananaProProvider (gemini-2.5-pro-image)
+      // TODO Sprint 2: createVeo3Provider (Max tier T2V premium)
+    }
+
+    // === LLM primary via DO Inference Engine (per ADR-002) ===
+    // TODO Sprint 1: createDoInferenceProvider({ token: config.secrets.DO_INFERENCE_TOKEN })
+
+    // === Video transition ===
+    // TODO Sprint 2: createKling30Provider({ apiKey: config.secrets.FAL_API_KEY })
 
     // === Self-host GPU pipelines (Demucs / SAM 2 / Real-ESRGAN / ComfyUI / Whisper) ===
     // TODO Phase 2+: register createDemucsProvider, createSAM2Provider, etc.
