@@ -196,6 +196,17 @@ export async function GET(request: NextRequest) {
 			);
 		}
 
+		if (!webEnv.FREESOUND_API_KEY) {
+			return NextResponse.json(
+				{
+					error: "Sound search not configured",
+					message:
+						"Freesound integration is disabled. Configure FREESOUND_API_KEY to enable.",
+				},
+				{ status: 503 },
+			);
+		}
+
 		const baseUrl = "https://freesound.org/apiv2/search/text/";
 
 		const sortParam = buildSortParameter({ query, sort });
