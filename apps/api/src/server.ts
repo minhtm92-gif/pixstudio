@@ -6,6 +6,8 @@ import { serializerCompiler, validatorCompiler, ZodTypeProvider } from "fastify-
 import { z } from "zod";
 import { healthRoutes } from "./routes/health.js";
 import { projectsRoutes } from "./routes/projects.js";
+import { aiRoutes } from "./routes/ai.js";
+import aiMeshPlugin from "./plugins/ai-mesh.js";
 
 const app = Fastify({
   logger: {
@@ -31,8 +33,10 @@ await app.register(rateLimit, {
   timeWindow: "1 minute",
 });
 
+await app.register(aiMeshPlugin);
 await app.register(healthRoutes, { prefix: "/health" });
 await app.register(projectsRoutes, { prefix: "/api/projects" });
+await app.register(aiRoutes, { prefix: "/api/ai" });
 
 const PORT = Number(process.env.PORT ?? 8080);
 const HOST = process.env.HOST ?? "0.0.0.0";
