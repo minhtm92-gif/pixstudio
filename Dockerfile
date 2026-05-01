@@ -1,0 +1,27 @@
+# PixStudio API — Bun + Fastify + Prisma on Fly.io
+FROM oven/bun:1.3.13-alpine AS base
+WORKDIR /repo
+
+# Stage 1: Install workspace deps using only manifests (cache-friendly)
+FROM base AS deps
+COPY package.json bun.lock ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/ai-services/package.json ./packages/ai-services/
+COPY packages/brand/package.json ./packages/brand/
+RUN bun install --frozen-lockfile
+
+# Stage 2: Build (prisma generate)
+FROM base AS build
+COPY --from=deps /repo/node_modules ./node_modules
+COPY . .
+RUN cd apps/api && bunx prisma generate
+
+# Stage 3: Runtime
+FROM base AS runtime
+ENV NODE_ENV=production
+ENV PORT=8080
+ENV HOST=0.0.0.0
+COPY --from=build /repo /repo
+WORKDIR /repo/apps/api
+EXPOSE 8080
+CMD ["bun", "src/server.ts"]
