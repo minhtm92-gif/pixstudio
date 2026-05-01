@@ -6,8 +6,12 @@ import { serializerCompiler, validatorCompiler, ZodTypeProvider } from "fastify-
 import { z } from "zod";
 import { healthRoutes } from "./routes/health.js";
 import { projectsRoutes } from "./routes/projects.js";
+import { workspacesRoutes } from "./routes/workspaces.js";
+import { assetsRoutes } from "./routes/assets.js";
 import { aiRoutes } from "./routes/ai.js";
 import aiMeshPlugin from "./plugins/ai-mesh.js";
+import prismaPlugin from "./plugins/prisma.js";
+import r2Plugin from "./plugins/r2.js";
 
 const app = Fastify({
   logger: {
@@ -33,9 +37,13 @@ await app.register(rateLimit, {
   timeWindow: "1 minute",
 });
 
+await app.register(prismaPlugin);
+await app.register(r2Plugin);
 await app.register(aiMeshPlugin);
 await app.register(healthRoutes, { prefix: "/health" });
 await app.register(projectsRoutes, { prefix: "/api/projects" });
+await app.register(workspacesRoutes, { prefix: "/api/workspaces" });
+await app.register(assetsRoutes, { prefix: "/api/assets" });
 await app.register(aiRoutes, { prefix: "/api/ai" });
 
 const PORT = Number(process.env.PORT ?? 8080);

@@ -4,7 +4,8 @@
 // Reference: docs/cto/CTO-TECH-STACK-v04.md §3 (18 model schema)
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
