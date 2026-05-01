@@ -1,4 +1,4 @@
-import { betterAuth, type RateLimit } from "better-auth";
+﻿import { betterAuth, type RateLimit } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { Redis } from "@upstash/redis";
 import { db } from "@/db";
@@ -36,7 +36,7 @@ export const auth = betterAuth({
 		},
 	},
 	baseURL: webEnv.NEXT_PUBLIC_SITE_URL,
-	appName: "OpenCut",
+	appName: "PixStudio",
 	trustedOrigins: [webEnv.NEXT_PUBLIC_SITE_URL],
 });
 
