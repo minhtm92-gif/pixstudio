@@ -12,6 +12,7 @@ import { aiRoutes } from "./routes/ai.js";
 import aiMeshPlugin from "./plugins/ai-mesh.js";
 import prismaPlugin from "./plugins/prisma.js";
 import r2Plugin from "./plugins/r2.js";
+import authPlugin from "./plugins/auth.js";
 
 const app = Fastify({
   logger: {
@@ -38,6 +39,7 @@ await app.register(rateLimit, {
 });
 
 await app.register(prismaPlugin);
+await app.register(authPlugin);
 await app.register(r2Plugin);
 await app.register(aiMeshPlugin);
 await app.register(healthRoutes, { prefix: "/health" });
