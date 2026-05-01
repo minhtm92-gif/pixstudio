@@ -1,0 +1,182 @@
+// Quick Create Phase 1 Sprint 1-2 schema additions.
+// Anh review then merge into apps/api/prisma/schema.prisma + run `bunx prisma migrate dev`.
+//
+// New models: QuickCreateSession, ReverseEngineerJob, BuildJob.
+// Extends: Project (add `quickCreateSessionId` optional FK).
+
+// ─── QuickCreateSession ───────────────────────────────────────────
+
+enum QuickCreateMode {
+  PATH_A
+  PATH_B
+}
+
+enum BuildStatus {
+  PENDING
+  GENERATING_SCRIPT
+  SYNTHESIZING_VOICE
+  MATCHING_STOCK
+  COMPOSING_SCENES
+  RENDERING_PREVIEW
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model QuickCreateSession {
+  id                String           @id @default(uuid())
+  userId            String
+  workspaceId       String
+  workflowId        String?
+
+  // View 1: Hero
+  prompt            String           @db.Text
+  mode              QuickCreateMode  @default(PATH_A)
+
+  // Path B source (when mode=PATH_B)
+  pathBSourceJson   Json?            // discriminated union: { type, assetId } | { type, url }
+
+  // View 3: Workflow config overrides
+  configOverrides   Json             @default("{}")
+
+  // View 4: Outline (after AI generation)
+  outlineJson       Json?            // { title, scenes[], suggestedChips }
+
+  // User chip selections (override suggestions)
+  chipSelectionsJson Json?           // { audiences[], lookFeel[], platform }
+
+  // View 5: Build job tracking
+  buildJobId        String?
+  buildStatus       BuildStatus      @default(PENDING)
+  buildProgress     Int              @default(0)
+  buildErrorMessage String?
+
+  // View 6: Editor handoff
+  projectId         String?
+
+  // Cost tracking (rolled up from per-stage costs)
+  totalCostUsd      Decimal          @default(0) @db.Decimal(10, 6)
+
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  completedAt       DateTime?
+
+  // Relations
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project           Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  reverseEngineerJob ReverseEngineerJob?
+  buildJob          BuildJob?
+
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([workflowId])
+  @@index([buildStatus])
+  @@map("quick_create_sessions")
+}
+
+// ─── BuildJob (BullMQ shadow record for query) ────────────────────
+
+model BuildJob {
+  id                String           @id @default(uuid())
+  sessionId         String           @unique
+  bullJobId         String           @unique  // BullMQ job ID
+
+  status            BuildStatus      @default(PENDING)
+  progress          Int              @default(0)
+  currentStage      String?
+
+  // Per-stage tracking
+  stagesJson        Json             @default("{}")  // { stageId: { status, durationMs, costUsd } }
+
+  // Aggregated cost
+  costScriptUsd     Decimal          @default(0) @db.Decimal(10, 6)
+  costVoiceUsd      Decimal          @default(0) @db.Decimal(10, 6)
+  costStockUsd      Decimal          @default(0) @db.Decimal(10, 6)
+  costRenderUsd     Decimal          @default(0) @db.Decimal(10, 6)
+
+  errorMessage      String?
+  retryCount        Int              @default(0)
+
+  startedAt         DateTime         @default(now())
+  completedAt       DateTime?
+
+  session           QuickCreateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([startedAt])
+  @@map("build_jobs")
+}
+
+// ─── ReverseEngineerJob (Path B) ──────────────────────────────────
+
+enum ReverseStageStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+model ReverseEngineerJob {
+  id                  String              @id @default(uuid())
+  sessionId           String              @unique
+
+  // Source
+  sourceType          String              // "upload" | "url"
+  sourceR2Key         String?             // when type=upload
+  sourceUrl           String?             // when type=url
+
+  // Pipeline stages
+  downloadStatus      ReverseStageStatus  @default(PENDING)
+  downloadAudioR2Key  String?
+  downloadDurationMs  Int?
+
+  sceneDetectStatus   ReverseStageStatus  @default(PENDING)
+  scenesJson          Json?               // [{ startSec, endSec }]
+
+  audioStemsStatus    ReverseStageStatus  @default(PENDING)
+  audioStemsJson      Json?               // { voice, drums, bass, other } R2 keys
+
+  transcribeStatus    ReverseStageStatus  @default(PENDING)
+  transcribeJson      Json?               // segments[] with diarization
+
+  musicMatchStatus    ReverseStageStatus  @default(PENDING)
+  musicCandidatesJson Json?               // [{ trackId, similarity, genre, mood }]
+
+  visualAnalysisStatus ReverseStageStatus @default(PENDING)
+  visualPerSceneJson  Json?               // [{ sceneIdx, tone, palette, style, objects, emotion }]
+
+  buildEditorStatus   ReverseStageStatus  @default(PENDING)
+  outputProjectId     String?
+
+  // Cost + perf
+  totalCostUsd        Decimal             @default(0) @db.Decimal(10, 6)
+  totalDurationMs     Int                 @default(0)
+
+  // GPU spawn metadata
+  gpuDropletId        String?
+  gpuDropletRegion    String?
+
+  errorMessage        String?
+
+  createdAt           DateTime            @default(now())
+  completedAt         DateTime?
+
+  session             QuickCreateSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([buildEditorStatus])
+  @@map("reverse_engineer_jobs")
+}
+
+// ─── Project model addition ───────────────────────────────────────
+
+// Add to existing Project model:
+// quickCreateSession QuickCreateSession?  // 1:1 reverse relation
+
+// Migration command:
+// cd apps/api && bunx prisma migrate dev --name add_quick_create
+//
+// Sanity test after migration:
+// SELECT count(*) FROM quick_create_sessions;  -- should be 0
+// SELECT count(*) FROM build_jobs;
+// SELECT count(*) FROM reverse_engineer_jobs;
