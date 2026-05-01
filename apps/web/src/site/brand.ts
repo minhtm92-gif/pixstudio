@@ -1,13 +1,13 @@
-export const SITE_URL = "https://opencut.app";
+export const SITE_URL = "https://studio.pixelxlab.com";
 
 export const SITE_INFO = {
-	title: "OpenCut",
+	title: "PixStudio",
 	description:
-		"A simple but powerful video editor that gets the job done. In your browser.",
+		"Studio video AI cho hệ sinh thái PixelxLab — Pro Workspace + Quick Create + Asset Studio. In your browser.",
 	url: SITE_URL,
 	openGraphImage: "/open-graph/default.jpg",
 	twitterImage: "/open-graph/default.jpg",
 	favicon: "/favicon.ico",
 };
 
-export const DEFAULT_LOGO_URL = "/logos/opencut/svg/logo.svg";
+export const DEFAULT_LOGO_URL = "/logos/pixstudio/svg/logo.svg";
