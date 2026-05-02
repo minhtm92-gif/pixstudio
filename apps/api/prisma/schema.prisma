@@ -265,6 +265,103 @@ model Asset {
 }
 
 // =============================================================================
+// STOCK LIBRARY (Sprint 5 Story 4.1 — admin only, anh manages 10-20 accounts)
+// =============================================================================
+
+enum StockVendor {
+  ISTOCK
+  ENVATO
+  SHUTTERSTOCK
+}
+
+enum StockAccountStatus {
+  ACTIVE
+  RATE_LIMITED
+  EXPIRED
+  DISABLED
+}
+
+model StockAccount {
+  id                String              @id @default(uuid())
+  vendor            StockVendor
+  label             String
+  apiCredentialsKey String
+  monthlyQuota      Int
+  monthlyUsed       Int                 @default(0)
+  resetDayOfMonth   Int                 @default(1)
+  status            StockAccountStatus  @default(ACTIVE)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  downloads StockDownload[]
+
+  @@index([vendor, status])
+  @@map("stock_accounts")
+}
+
+model StockDownload {
+  id              String   @id @default(uuid())
+  accountId       String
+  workspaceId     String
+  userId          String
+  projectId       String?
+  vendorAssetId   String
+  vendorPreviewUrl String?
+  vendorLicenseId String?
+  r2Key           String
+  costCents       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  account StockAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([workspaceId])
+  @@map("stock_downloads")
+}
+
+// =============================================================================
+// PATH B REVERSE ENGINEER (Sprint 5 Stories 2.1-2.8)
+// =============================================================================
+
+enum ReverseEngineerStatus {
+  PENDING
+  DOWNLOADING
+  EXTRACTING_AUDIO
+  DETECTING_SCENES
+  SEPARATING_STEMS
+  TRANSCRIBING
+  IDENTIFYING_MUSIC
+  ANALYZING_VISUAL
+  BUILDING_STATE
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model ReverseEngineerJob {
+  id                    String                @id @default(uuid())
+  sessionId             String                @unique
+  userId                String
+  workspaceId           String
+  sourceUrl             String?
+  sourceAssetId         String?
+  gpuDropletId          String?
+  status                ReverseEngineerStatus @default(PENDING)
+  progress              Int                   @default(0)
+  errorMessage          String?
+  outputEditorStateJson Json?
+  totalCostUsd          Decimal               @default(0) @db.Decimal(10, 6)
+  totalDurationMs       Int?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  completedAt           DateTime?
+
+  @@index([userId])
+  @@index([status])
+  @@map("reverse_engineer_jobs")
+}
+
+// =============================================================================
 // QUICK CREATE (Phase 1 Sprint 2)
 // =============================================================================
 
