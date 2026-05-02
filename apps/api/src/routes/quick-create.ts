@@ -47,6 +47,30 @@ interface SessionRow {
 	updatedAt: Date;
 }
 
+function generateMockOutline(
+	workflow: ReturnType<typeof workflowRegistry.get> & {},
+	prompt: string,
+) {
+	if (!workflow) throw new Error("workflow required for mock outline");
+	const sceneCount = workflow.platform.defaultDurationSec <= 30 ? 4 : 8;
+	const sceneDuration = workflow.platform.defaultDurationSec / sceneCount;
+	return {
+		title: `[Mock] ${workflow.name}: ${prompt.slice(0, 60)}`,
+		scenes: Array.from({ length: sceneCount }, (_, i) => ({
+			id: `scene-${i + 1}`,
+			order: i + 1,
+			script: `[Mock script scene ${i + 1}] ${workflow.samplePrompts[0] ?? "Sample text"}`,
+			mediaQuery: "businessman office laptop modern",
+			durationSec: Math.round(sceneDuration * 10) / 10,
+		})),
+		suggestedChips: {
+			audiences: ["genz-tiktok"],
+			lookFeel: ["ad-style"],
+			platform: workflow.platform.ratio === "9:16" ? "tiktok" : "youtube-long",
+		},
+	};
+}
+
 const serializeSession = (s: SessionRow) => ({
 	id: s.id,
 	userId: s.userId,
@@ -140,7 +164,10 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 	// ─── Outline generation (Sprint 2 wire-up) ─────────────────────
 
 	app.post("/sessions/:sessionId/outline", {
-		schema: { params: SessionIdParamsSchema },
+		schema: {
+			params: SessionIdParamsSchema,
+			querystring: z.object({ live: z.coerce.boolean().optional() }),
+		},
 		handler: async (req, reply) => {
 			const user = requireUser(req, reply);
 			if (!user) return;
@@ -158,36 +185,126 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 				return { error: `Unknown workflow ${session.workflowId}` };
 			}
 
-			// Phase 1 Sprint 2: returning mock outline so UI can integrate without burning AI cost.
-			// Real LLM wire-up: ai-mesh router invoke llm.chat with structured JSON schema response.
-			const sceneCount = workflow.platform.defaultDurationSec <= 30 ? 4 : 8;
-			const sceneDuration = workflow.platform.defaultDurationSec / sceneCount;
-			const mockOutline = {
-				title: `[Mock] ${workflow.name}: ${session.prompt.slice(0, 60)}`,
-				scenes: Array.from({ length: sceneCount }, (_, i) => ({
-					id: `scene-${i + 1}`,
-					order: i + 1,
-					script: `[Mock script scene ${i + 1}] ${workflow.samplePrompts[0] ?? "Sample text"}`,
-					mediaQuery: "businessman office laptop modern",
-					durationSec: Math.round(sceneDuration * 10) / 10,
-				})),
-				suggestedChips: {
-					audiences: ["genz-tiktok"],
-					lookFeel: ["ad-style"],
-					platform: workflow.platform.ratio === "9:16" ? "tiktok" : "youtube-long",
-				},
+			const liveMode =
+				req.query.live === true || process.env["QUICK_CREATE_OUTLINE_MODE"] === "live";
+
+			let outline: {
+				title: string;
+				scenes: Array<{
+					id: string;
+					order: number;
+					script: string;
+					mediaQuery: string;
+					durationSec: number;
+				}>;
+				suggestedChips: { audiences: string[]; lookFeel: string[]; platform: string };
 			};
+			let costUsd = 0;
+			let durationMs = 0;
+
+			if (liveMode && app.aiRouter) {
+				// Real LLM call via DO Inference (priority channel for llm.chat).
+				const sceneCount = workflow.platform.defaultDurationSec <= 30 ? 4 : 8;
+				const totalSec = workflow.platform.defaultDurationSec;
+				const language = workflow.defaultLanguage;
+				const llmPrompt = `You are a video script outline generator for PixStudio (Vietnamese video platform).
+
+User prompt: ${session.prompt}
+
+Workflow: ${workflow.name} — ${workflow.description}
+Default language: ${language}
+Pace: ${workflow.pace}
+Total duration: ${totalSec}s
+Platform: ${workflow.platform.ratio} ratio
+
+Generate exactly ${sceneCount} scenes that sum to ${totalSec}s ±5%.
+
+Each scene must have:
+- id (e.g. "scene-1")
+- order (1-indexed integer)
+- script (1-3 sentences in ${language === "vi" ? "Vietnamese" : "English"}, voice-friendly)
+- mediaQuery (English keywords for stock search, e.g. "businessman office laptop")
+- durationSec (number, scene length)
+
+Also suggest:
+- 1-3 audience chips (from set: senior-50plus-vn, genz-tiktok, young-parents, office-worker, ecom-seller)
+- 1-2 look-feel chips (from set: cinematic, vlog, ad-style, documentary, kawaii)
+- 1 platform chip (default ${workflow.platform.ratio === "9:16" ? "tiktok" : "youtube-long"})
+
+Return JSON ONLY (no markdown fence) matching:
+{"title": string, "scenes": [{"id","order","script","mediaQuery","durationSec"}], "suggestedChips": {"audiences": string[], "lookFeel": string[], "platform": string}}`;
+
+				try {
+					const startedAt = Date.now();
+					const { result: llmResult } = await app.aiRouter.invoke(
+						"llm.chat" as never,
+						{
+							prompt: llmPrompt,
+							maxTokens: 1500,
+							temperature: 0.7,
+							responseFormat: "json_object",
+						} as never,
+						{ tier: "pro", workspaceId: session.workspaceId, userId: user.id } as never,
+					);
+					durationMs = Date.now() - startedAt;
+					const text = (llmResult as { text?: string }).text ?? "";
+					costUsd = (llmResult as { costUsd?: number }).costUsd ?? 0;
+
+					// Parse JSON (LLM may return with leading/trailing whitespace or fences).
+					const jsonStart = text.indexOf("{");
+					const jsonEnd = text.lastIndexOf("}");
+					if (jsonStart === -1 || jsonEnd === -1) {
+						throw new Error("LLM did not return JSON object");
+					}
+					const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+					outline = {
+						title: String(parsed.title ?? "Untitled"),
+						scenes: Array.isArray(parsed.scenes)
+							? parsed.scenes.map((s: Record<string, unknown>, i: number) => ({
+									id: String(s["id"] ?? `scene-${i + 1}`),
+									order: Number(s["order"] ?? i + 1),
+									script: String(s["script"] ?? ""),
+									mediaQuery: String(s["mediaQuery"] ?? ""),
+									durationSec: Number(s["durationSec"] ?? totalSec / sceneCount),
+								}))
+							: [],
+						suggestedChips: {
+							audiences: Array.isArray(parsed.suggestedChips?.audiences)
+								? parsed.suggestedChips.audiences.slice(0, 3).map(String)
+								: ["genz-tiktok"],
+							lookFeel: Array.isArray(parsed.suggestedChips?.lookFeel)
+								? parsed.suggestedChips.lookFeel.slice(0, 2).map(String)
+								: ["ad-style"],
+							platform: String(
+								parsed.suggestedChips?.platform ??
+									(workflow.platform.ratio === "9:16" ? "tiktok" : "youtube-long"),
+							),
+						},
+					};
+				} catch (err) {
+					req.log.error({ err }, "outline LLM call failed — falling back to mock");
+					outline = generateMockOutline(workflow, session.prompt);
+				}
+			} else {
+				outline = generateMockOutline(workflow, session.prompt);
+			}
 
 			const updated = (await app.prisma.quickCreateSession.update({
 				where: { id: session.id },
-				data: { outlineJson: mockOutline as object },
+				data: {
+					outlineJson: outline as object,
+					totalCostUsd: { increment: costUsd },
+				},
 			})) as SessionRow;
 
 			return {
-				outline: mockOutline,
+				outline,
 				session: serializeSession(updated),
-				_note:
-					"Sprint 2: mock outline returned. Real LLM activation: env QUICK_CREATE_OUTLINE_MODE=live + ai-mesh router. Cost ~$0.01/outline DO Inference.",
+				meta: {
+					mode: liveMode ? "live" : "mock",
+					costUsd,
+					durationMs,
+				},
 			};
 		},
 	});
@@ -214,11 +331,43 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 
 	app.post("/sessions/:sessionId/build", {
 		schema: { params: SessionIdParamsSchema },
-		handler: async (_req, reply) => {
-			reply.code(501);
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			const result = await loadSession(req.params.sessionId, user.id);
+			if (result.error) return handleSessionError(reply, result.error);
+			const session = result.session;
+
+			if (!session.outlineJson) {
+				reply.status(400);
+				return { error: "Outline not generated yet — call POST /outline first" };
+			}
+			if (!app.queues?.quickCreateBuild) {
+				reply.status(503);
+				return {
+					error: "Queue not configured",
+					message: "Set REDIS_URL to enable build pipeline",
+				};
+			}
+
+			const job = await app.queues.quickCreateBuild.add("build", {
+				sessionId: session.id,
+				workspaceId: session.workspaceId,
+				userId: session.userId,
+			});
+
+			await app.prisma.quickCreateSession.update({
+				where: { id: session.id },
+				data: { buildJobId: job.id, buildStatus: "PENDING" as never, buildProgress: 0 },
+			});
+
+			reply.code(202);
 			return {
-				error: "Not Implemented",
-				message: "Build pipeline BullMQ wire-up Sprint 2 next iteration",
+				sessionId: session.id,
+				buildJobId: job.id,
+				status: "PENDING",
+				progress: 0,
+				streamUrl: `/api/quick-create/sessions/${session.id}/build/stream`,
 			};
 		},
 	});
@@ -240,14 +389,93 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 
 	app.delete("/sessions/:sessionId/build", {
 		schema: { params: SessionIdParamsSchema },
-		handler: async (_req, reply) => {
-			reply.code(501);
-			return {
-				error: "Not Implemented",
-				message: "Build cancel Sprint 2 next iteration",
-			};
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			const result = await loadSession(req.params.sessionId, user.id);
+			if (result.error) return handleSessionError(reply, result.error);
+			const session = result.session;
+
+			// Only allow cancel pre-stage 3 (per acceptance-criteria-draft.md)
+			const cancelableStages = ["PENDING", "GENERATING_SCRIPT", "SYNTHESIZING_VOICE"];
+			if (!cancelableStages.includes(session.buildStatus)) {
+				reply.status(409);
+				return {
+					error: "Cannot cancel — build past matching-stock stage (cost incurred)",
+					currentStatus: session.buildStatus,
+				};
+			}
+
+			if (app.queues?.quickCreateBuild && session.buildJobId) {
+				try {
+					const job = await app.queues.quickCreateBuild.getJob(session.buildJobId);
+					if (job) await job.remove();
+				} catch (err) {
+					req.log.warn({ err }, "BullMQ job remove failed");
+				}
+			}
+
+			await app.prisma.quickCreateSession.update({
+				where: { id: session.id },
+				data: { buildStatus: "CANCELLED" as never, buildProgress: 0 },
+			});
+
+			return { sessionId: session.id, status: "CANCELLED" };
 		},
 	});
+
+	// WebSocket: stream build events via polling DB session.buildStatus.
+	// Sprint 3 polish: replace polling với BullMQ Pub/Sub events.
+	app.get(
+		"/sessions/:sessionId/build/stream",
+		{ websocket: true, schema: { params: SessionIdParamsSchema } },
+		async (socket, req) => {
+			const session = await app.prisma.quickCreateSession.findUnique({
+				where: { id: (req.params as { sessionId: string }).sessionId },
+			});
+			if (!session) {
+				socket.send(JSON.stringify({ type: "error", message: "session not found" }));
+				socket.close();
+				return;
+			}
+
+			let lastStatus = "";
+			let lastProgress = -1;
+			const interval = setInterval(async () => {
+				try {
+					const fresh = await app.prisma.quickCreateSession.findUnique({
+						where: { id: session.id },
+					});
+					if (!fresh) {
+						socket.send(JSON.stringify({ type: "error", message: "session removed" }));
+						socket.close();
+						return;
+					}
+					if (fresh.buildStatus !== lastStatus || fresh.buildProgress !== lastProgress) {
+						socket.send(
+							JSON.stringify({
+								type: "status-change",
+								sessionId: fresh.id,
+								status: fresh.buildStatus,
+								progress: fresh.buildProgress,
+							}),
+						);
+						lastStatus = fresh.buildStatus;
+						lastProgress = fresh.buildProgress;
+					}
+					if (fresh.buildStatus === "COMPLETED" || fresh.buildStatus === "FAILED" || fresh.buildStatus === "CANCELLED") {
+						socket.send(JSON.stringify({ type: "completed", sessionId: fresh.id, status: fresh.buildStatus }));
+						clearInterval(interval);
+						socket.close();
+					}
+				} catch (err) {
+					req.log.error({ err }, "WS poll error");
+				}
+			}, 1000);
+
+			socket.on("close", () => clearInterval(interval));
+		},
+	);
 
 	// ─── Path B reverse engineer (Sprint 5) ─────────────────────────
 
