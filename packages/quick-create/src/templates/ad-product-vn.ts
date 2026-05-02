@@ -55,6 +55,7 @@ const adProductVn: WorkflowTemplate = {
 	],
 	requiredTier: "standard",
 	inputMode: "prompt",
+	tags: ["ad"], // VN market ad — does NOT fire Crossian RAG (Q72: only dropshipping/facebook-ad + EN)
 };
 
 export default adProductVn;
