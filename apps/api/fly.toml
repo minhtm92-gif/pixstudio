@@ -9,7 +9,10 @@ primary_region = "sin"
 [deploy]
   # Run prisma db push to sync QuickCreateSession + voice cache models on each deploy.
   # Sprint 2.5+ — switch to `prisma migrate deploy` once first migration is generated.
-  release_command = "bunx prisma db push --skip-generate --accept-data-loss"
+  # NO --accept-data-loss: Prisma refuses if it would destroy data, deploy fails safely.
+  # Sprint 1+2+2.5 changes are PURELY ADDITIVE (new tables QuickCreateSession + enums),
+  # so this push will succeed without losing any existing data.
+  release_command = "bunx prisma db push --skip-generate"
 
 [env]
   PORT = "8080"
