@@ -2,18 +2,28 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Sparkles, Video, Lightbulb } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Sparkles, Video, Lightbulb, AlertCircle } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { quickCreateApi, ApiError } from "@/lib/quick-create-api";
 
 const MAX_PROMPT_LENGTH = 25_000;
 
 type Mode = "pathA" | "pathB";
 
-export function HeroView() {
+interface HeroViewProps {
+	/** Pass authenticated user's bearer token + workspace context */
+	token?: string;
+	defaultWorkspaceId?: string;
+}
+
+export function HeroView({ token, defaultWorkspaceId }: HeroViewProps = {}) {
+	const router = useRouter();
 	const [prompt, setPrompt] = useState("");
 	const [mode, setMode] = useState<Mode>("pathA");
 	const [submitting, setSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 
 	const charCount = prompt.length;
 	const overLimit = charCount > MAX_PROMPT_LENGTH;
@@ -22,10 +32,29 @@ export function HeroView() {
 	const handleSubmit = async () => {
 		if (!canSubmit) return;
 		setSubmitting(true);
-		// TODO Sprint 2: POST /api/quick-create/sessions { prompt, mode } → redirect to workflow picker
-		await new Promise((r) => setTimeout(r, 500));
-		console.info("[quick-create] session prompt", { prompt, mode });
-		setSubmitting(false);
+		setError(null);
+		try {
+			if (!token || !defaultWorkspaceId) {
+				// No auth context — for unauthed visitors, send to login
+				router.push(`/login?redirect=/quick-create&prompt=${encodeURIComponent(prompt)}`);
+				return;
+			}
+			const session = await quickCreateApi.createSession(token, {
+				workspaceId: defaultWorkspaceId,
+				prompt,
+				mode,
+			});
+			router.push(`/quick-create/workflows?sessionId=${session.id}`);
+		} catch (err) {
+			console.error("[quick-create] create session failed", err);
+			if (err instanceof ApiError) {
+				setError(err.message);
+			} else {
+				setError("Network error — vui lòng thử lại");
+			}
+		} finally {
+			setSubmitting(false);
+		}
 	};
 
 	return (
@@ -122,6 +151,14 @@ export function HeroView() {
 						Cost ~$0.07-0.10 / phút video reference. Quota: Standard 5min/mo · Pro
 						30min · Max 120min.
 					</p>
+				</div>
+			)}
+
+			{/* Error banner */}
+			{error && (
+				<div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
+					<AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+					<span>{error}</span>
 				</div>
 			)}
 

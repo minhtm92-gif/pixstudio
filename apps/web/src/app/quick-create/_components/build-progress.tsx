@@ -4,10 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, X, Lightbulb, Bell, MoreVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { quickCreateApi } from "@/lib/quick-create-api";
 
 interface BuildProgressProps {
 	workflowId: string;
 	sessionId: string;
+	token?: string;
+	useRealApi?: boolean; // false = mock setInterval, true = WebSocket subscribe
 }
 
 interface Stage {
@@ -32,7 +35,12 @@ const TIPS = [
 	"💡 Stock library auto-credit license per asset, anh không phải manual",
 ];
 
-export function BuildProgress({ workflowId, sessionId }: BuildProgressProps) {
+export function BuildProgress({
+	workflowId,
+	sessionId,
+	token,
+	useRealApi = false,
+}: BuildProgressProps) {
 	const router = useRouter();
 	const [stages, setStages] = useState<Stage[]>(
 		STAGES.map((s) => ({ ...s, status: "pending" as const })),
@@ -44,9 +52,41 @@ export function BuildProgress({ workflowId, sessionId }: BuildProgressProps) {
 	const [done, setDone] = useState(false);
 	const [errored, setErrored] = useState(false);
 
+	// Real API mode: subscribe to WS, sync stages from server.buildStatus
 	useEffect(() => {
-		// TODO Sprint 2.5: connect WebSocket /api/quick-create/sessions/:id/build/stream
-		// For now: simulate stages every 1.5s
+		if (!useRealApi || !token) return;
+
+		let ws: WebSocket | null = null;
+		// Trigger build first
+		quickCreateApi
+			.startBuild(token, sessionId)
+			.then(() => {
+				ws = quickCreateApi.subscribeBuildStream(sessionId, (event) => {
+					if (event.type === "status-change") {
+						setProgress(event.progress);
+						syncStagesFromStatus(event.status);
+					}
+					if (event.type === "completed") {
+						setDone(true);
+					}
+					if (event.type === "error") {
+						setErrored(true);
+					}
+				});
+			})
+			.catch((err) => {
+				console.error("[build] startBuild failed", err);
+				setErrored(true);
+			});
+
+		return () => {
+			ws?.close();
+		};
+	}, [useRealApi, token, sessionId]);
+
+	// Mock mode: simulate stages every 1.5s (for UI dev preview)
+	useEffect(() => {
+		if (useRealApi) return;
 		let cumProgress = 0;
 		let stageIdx = 0;
 		const interval = setInterval(() => {
@@ -70,18 +110,43 @@ export function BuildProgress({ workflowId, sessionId }: BuildProgressProps) {
 			stageIdx++;
 		}, 1500);
 
-		// Initialize first stage as running
 		setStages((prev) => prev.map((s, i) => (i === 0 ? { ...s, status: "running" } : s)));
+		return () => clearInterval(interval);
+	}, [useRealApi]);
 
+	// Helper: sync stage list from buildStatus enum
+	const syncStagesFromStatus = (status: string) => {
+		const statusToIdx: Record<string, number> = {
+			PENDING: -1,
+			GENERATING_SCRIPT: 0,
+			SYNTHESIZING_VOICE: 1,
+			MATCHING_STOCK: 2,
+			COMPOSING_SCENES: 3,
+			RENDERING_PREVIEW: 4,
+			COMPLETED: 5,
+		};
+		const currentIdx = statusToIdx[status] ?? -1;
+		setStages((prev) =>
+			prev.map((s, i) => ({
+				...s,
+				status:
+					i < currentIdx
+						? "done"
+						: i === currentIdx
+							? "running"
+							: "pending",
+			})),
+		);
+	};
+
+	useEffect(() => {
 		const elapsedTimer = setInterval(() => setElapsed((e) => e + 1), 1000);
 		const tipTimer = setInterval(() => setTipIdx((t) => (t + 1) % TIPS.length), 5000);
-
 		return () => {
-			clearInterval(interval);
 			clearInterval(elapsedTimer);
 			clearInterval(tipTimer);
 		};
-	}, [sessionId]);
+	}, []);
 
 	useEffect(() => {
 		if (done) {
@@ -99,8 +164,14 @@ export function BuildProgress({ workflowId, sessionId }: BuildProgressProps) {
 		? Math.round(((totalWeight - progress) / totalWeight) * 30) // rough 30s total
 		: 0;
 
-	const handleCancel = () => {
-		// TODO Sprint 2.5: DELETE /api/quick-create/sessions/:id/build (only allowed pre-stage 3)
+	const handleCancel = async () => {
+		if (useRealApi && token) {
+			try {
+				await quickCreateApi.cancelBuild(token, sessionId);
+			} catch (err) {
+				console.error("[build] cancel failed", err);
+			}
+		}
 		router.push(`/quick-create/workflows/${workflowId}/outline?sessionId=${sessionId}`);
 	};
 
