@@ -123,9 +123,33 @@ model Workspace {
   owner    User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members  WorkspaceMember[]
   projects Project[]
+  brandKit BrandKit?
 
   @@index([ownerId])
   @@map("workspaces")
+}
+
+// =============================================================================
+// BRAND KIT (Sprint 3 Story 3.1 — Pro+ tier)
+// =============================================================================
+
+model BrandKit {
+  id              String   @id @default(uuid())
+  workspaceId     String   @unique
+  logoR2Key       String?  // R2 object key (logo file uploaded via presigned URL)
+  faviconR2Key    String?  // R2 object key (favicon)
+  primaryColor    String   @default("#3B82F6") // hex e.g. PXL royal
+  secondaryColor  String?  // hex
+  accentColor     String?  // hex
+  fontFamily      String?  // e.g. "Inter" / "Bebas Neue"
+  watermarkText   String?  // e.g. "PXL-XXXXX"
+  watermarkOn     Boolean  @default(true) // toggle watermark for Pro+ tier
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("brand_kits")
 }
 
 model WorkspaceMember {
@@ -154,6 +178,11 @@ model Project {
   description  String?
   yjsDocId     String?  // Phase 3 collab — reserved Sprint 1, populated when Yjs ships
   thumbnailKey String?  // R2 key
+  // Sprint 3 Story 3.3: editor state JSON (serialized timeline / scenes / settings).
+  // Auto-saved every 30s via debounced PATCH from web client. Versions snapshot on
+  // demand or major operations (rename / scene add/remove).
+  editorStateJson Json?
+  editorStateVersion Int @default(0) // monotonic increment per save (for conflict detection)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   lastEditedAt DateTime @default(now())
@@ -162,10 +191,33 @@ model Project {
   workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assets             Asset[]
   quickCreateSessions QuickCreateSession[]
+  versions           ProjectVersion[]
 
   @@index([workspaceId])
   @@index([lastEditedAt])
   @@map("projects")
+}
+
+// =============================================================================
+// PROJECT VERSION (Sprint 3 Story 3.3 — version history)
+// =============================================================================
+
+model ProjectVersion {
+  id              String   @id @default(uuid())
+  projectId       String
+  versionNumber   Int      // monotonic, matches Project.editorStateVersion at snapshot time
+  editorStateJson Json     // full snapshot of editor state
+  label           String?  // optional user label e.g. "Before scene reorder"
+  triggeredBy     String   // user.id who saved
+  triggerReason   String   // "auto-save" | "manual" | "rename" | "scene-change" | "milestone"
+  thumbnailKey    String?  // optional snapshot thumbnail R2 key
+  createdAt       DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, versionNumber])
+  @@index([projectId, createdAt])
+  @@map("project_versions")
 }
 
 // =============================================================================
