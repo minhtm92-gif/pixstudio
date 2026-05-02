@@ -122,8 +122,9 @@ export function DashboardView({ user }: DashboardViewProps) {
 			// Pre-fill Quick Create hero with prompt
 			router.push(`/quick-create?prompt=${encodeURIComponent(prompt)}`);
 		} else {
-			// Pro Workspace: create new project then nav to editor
-			router.push(`/projects/new?prompt=${encodeURIComponent(prompt)}`);
+			// Pro Workspace: nav to projects list (Sprint 9 wires real "create + open editor")
+			// The /projects page (OpenCut inherited) shows project list with create flow.
+			router.push(`/projects?prompt=${encodeURIComponent(prompt)}`);
 		}
 	};
 
