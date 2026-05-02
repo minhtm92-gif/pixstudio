@@ -8,6 +8,7 @@ import fp from "fastify-plugin";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import type { PrismaClient } from "@prisma/client";
+import { apiEnv, authSecret } from "../env.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -22,16 +23,15 @@ const authImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
     return;
   }
 
-  const secret = process.env.NEXTAUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
-  if (!secret) {
+  if (!authSecret) {
     app.log.warn("NEXTAUTH_SECRET / BETTER_AUTH_SECRET not set — auth disabled");
     return;
   }
 
   const auth = betterAuth({
     database: prismaAdapter(prisma, { provider: "postgresql" }),
-    secret,
-    baseURL: process.env.AUTH_BASE_URL ?? "http://localhost:8080",
+    secret: authSecret,
+    baseURL: apiEnv.AUTH_BASE_URL ?? `http://${apiEnv.HOST}:${apiEnv.PORT}`,
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false, // Phase 0 internal — Phase 3+ enable
@@ -44,7 +44,7 @@ const authImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
     },
     advanced: {
       cookiePrefix: "pxs",
-      useSecureCookies: process.env.NODE_ENV === "production",
+      useSecureCookies: apiEnv.NODE_ENV === "production",
     },
   });
 
