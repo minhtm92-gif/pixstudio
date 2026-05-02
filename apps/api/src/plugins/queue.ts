@@ -108,8 +108,17 @@ const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
 /**
  * 5-stage build pipeline (Sprint 2.5 mock — real wire-up Sprint 3-4).
  *
- * Updates session progress + buildStatus after each stage.
+ * Updates session progress + buildStatus after each stage. Re-reads session
+ * status before each stage so DELETE /build (Codex P1 #3) can abort even if
+ * BullMQ job removal failed.
  */
+class BuildCancelledError extends Error {
+	constructor(public sessionId: string) {
+		super(`build cancelled for session ${sessionId}`);
+		this.name = "BuildCancelledError";
+	}
+}
+
 async function processBuildJob(
 	app: FastifyInstance,
 	job: Job<QuickCreateBuildJobData, QuickCreateBuildJobReturn>,
@@ -127,40 +136,62 @@ async function processBuildJob(
 	let cumulativeProgress = 0;
 	const startedAt = Date.now();
 
-	for (const stage of stages) {
+	try {
+		for (const stage of stages) {
+			// Codex P1 #3: defence in depth — abort if user cancelled even when job
+			// stayed in BullMQ (e.g. transient Redis error during DELETE handler).
+			const current = await app.prisma.quickCreateSession.findUnique({
+				where: { id: sessionId },
+				select: { buildStatus: true },
+			});
+			if (current?.buildStatus === "CANCELLED") {
+				throw new BuildCancelledError(sessionId);
+			}
+
+			await app.prisma.quickCreateSession.update({
+				where: { id: sessionId },
+				data: {
+					buildStatus: stage.id as never,
+					buildProgress: cumulativeProgress,
+				},
+			});
+
+			// TODO Sprint 3-4: replace with real stage handlers (LLM script polish,
+			// ElevenLabs TTS, stock match, compositor JSON build, MP4 render).
+			await new Promise((r) => setTimeout(r, 1500)); // simulate stage work
+
+			cumulativeProgress += stage.weight;
+			await job.updateProgress(cumulativeProgress);
+		}
+
+		const totalDurationMs = Date.now() - startedAt;
+
+		// Sprint 4: create real Project row from outline + assets. Mock for now.
 		await app.prisma.quickCreateSession.update({
 			where: { id: sessionId },
 			data: {
-				buildStatus: stage.id as never,
-				buildProgress: cumulativeProgress,
+				buildStatus: "COMPLETED" as never,
+				buildProgress: 100,
+				completedAt: new Date(),
 			},
 		});
 
-		// TODO Sprint 3-4: replace with real stage handlers (LLM script polish,
-		// ElevenLabs TTS, stock match, compositor JSON build, MP4 render).
-		await new Promise((r) => setTimeout(r, 1500)); // simulate stage work
-
-		cumulativeProgress += stage.weight;
-		await job.updateProgress(cumulativeProgress);
+		return {
+			projectId: `mock-project-${sessionId}`,
+			totalCostUsd: 0.05,
+			totalDurationMs,
+		};
+	} catch (err) {
+		if (err instanceof BuildCancelledError) {
+			app.log.info({ sessionId, jobId: job.id }, "build aborted — session was cancelled");
+			return {
+				projectId: `cancelled-${sessionId}`,
+				totalCostUsd: 0,
+				totalDurationMs: Date.now() - startedAt,
+			};
+		}
+		throw err;
 	}
-
-	const totalDurationMs = Date.now() - startedAt;
-
-	// Sprint 4: create real Project row from outline + assets. Mock for now.
-	await app.prisma.quickCreateSession.update({
-		where: { id: sessionId },
-		data: {
-			buildStatus: "COMPLETED" as never,
-			buildProgress: 100,
-			completedAt: new Date(),
-		},
-	});
-
-	return {
-		projectId: `mock-project-${sessionId}`,
-		totalCostUsd: 0.05,
-		totalDurationMs,
-	};
 }
 
 export default fp(queueImpl, { name: "queue", dependencies: ["prisma"] });

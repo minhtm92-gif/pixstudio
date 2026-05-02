@@ -41,6 +41,7 @@ interface SessionRow {
 	configOverrides: unknown;
 	outlineJson: unknown;
 	chipSelectionsJson: unknown;
+	buildJobId: string | null;
 	buildStatus: string;
 	buildProgress: number;
 	createdAt: Date;
@@ -109,6 +110,13 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 		};
 	}
 
+	// Codex P1 #1: prevent cross-tenant session creation by enforcing workspace membership.
+	async function ensureWorkspaceMember(workspaceId: string, userId: string) {
+		return app.prisma.workspaceMember.findUnique({
+			where: { workspaceId_userId: { workspaceId, userId } },
+		});
+	}
+
 	// ─── Session lifecycle ─────────────────────────────────────────
 
 	app.post("/sessions", {
@@ -116,6 +124,11 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 		handler: async (req, reply) => {
 			const user = requireUser(req, reply);
 			if (!user) return;
+			const member = await ensureWorkspaceMember(req.body.workspaceId, user.id);
+			if (!member) {
+				reply.status(403);
+				return { error: "Not a member of this workspace" };
+			}
 			const session = (await app.prisma.quickCreateSession.create({
 				data: {
 					userId: user.id,
@@ -406,12 +419,23 @@ Return JSON ONLY (no markdown fence) matching:
 				};
 			}
 
+			// Codex P1 #3: surface job removal failures so caller knows queue still has the job.
+			// Worker also re-checks session.buildStatus === CANCELLED at each stage as defence
+			// in depth (apps/api/src/plugins/queue.ts).
+			let jobRemoved = false;
+			let jobRemovalError: string | null = null;
 			if (app.queues?.quickCreateBuild && session.buildJobId) {
 				try {
 					const job = await app.queues.quickCreateBuild.getJob(session.buildJobId);
-					if (job) await job.remove();
+					if (job) {
+						await job.remove();
+						jobRemoved = true;
+					} else {
+						jobRemoved = true; // job already gone (worker finished or expired)
+					}
 				} catch (err) {
-					req.log.warn({ err }, "BullMQ job remove failed");
+					jobRemovalError = err instanceof Error ? err.message : String(err);
+					req.log.warn({ err, jobId: session.buildJobId }, "BullMQ job remove failed");
 				}
 			}
 
@@ -420,21 +444,39 @@ Return JSON ONLY (no markdown fence) matching:
 				data: { buildStatus: "CANCELLED" as never, buildProgress: 0 },
 			});
 
-			return { sessionId: session.id, status: "CANCELLED" };
+			return {
+				sessionId: session.id,
+				status: "CANCELLED",
+				jobRemoved,
+				jobRemovalError,
+			};
 		},
 	});
 
 	// WebSocket: stream build events via polling DB session.buildStatus.
 	// Sprint 3 polish: replace polling với BullMQ Pub/Sub events.
+	// Codex P1 #2: enforce auth + ownership on WS upgrade — req.user is populated
+	// by require-auth preHandler from session cookie sent on the upgrade request.
 	app.get(
 		"/sessions/:sessionId/build/stream",
 		{ websocket: true, schema: { params: SessionIdParamsSchema } },
 		async (socket, req) => {
+			if (!req.user) {
+				socket.send(JSON.stringify({ type: "error", message: "unauthorized" }));
+				socket.close();
+				return;
+			}
+			const sessionId = (req.params as { sessionId: string }).sessionId;
 			const session = await app.prisma.quickCreateSession.findUnique({
-				where: { id: (req.params as { sessionId: string }).sessionId },
+				where: { id: sessionId },
 			});
 			if (!session) {
 				socket.send(JSON.stringify({ type: "error", message: "session not found" }));
+				socket.close();
+				return;
+			}
+			if (session.userId !== req.user.id) {
+				socket.send(JSON.stringify({ type: "error", message: "forbidden" }));
 				socket.close();
 				return;
 			}
