@@ -15,7 +15,7 @@ import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { requireUser } from "../plugins/require-auth.js";
+import { requireUser, requireWorkspaceMember } from "../plugins/require-auth.js";
 
 const HexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be hex #RRGGBB");
 
@@ -77,21 +77,6 @@ const serialize = (b: BrandKitRow) => ({
 });
 
 export const brandKitRoutes: FastifyPluginAsyncZod = async (app) => {
-	// Auth helper — ensure caller is a member of workspace + meets minimum role.
-	async function requireMember(
-		workspaceId: string,
-		userId: string,
-		minRole: "VIEWER" | "EDITOR" | "OWNER" = "EDITOR",
-	) {
-		const member = await app.prisma.workspaceMember.findUnique({
-			where: { workspaceId_userId: { workspaceId, userId } },
-		});
-		if (!member) return null;
-		const rank = { VIEWER: 0, EDITOR: 1, OWNER: 2 };
-		if (rank[member.role as keyof typeof rank] < rank[minRole]) return null;
-		return member;
-	}
-
 	// Tier gate — Brand Kit is Pro+ feature.
 	async function requireProTier(workspaceId: string): Promise<boolean> {
 		const ws = await app.prisma.workspace.findUnique({
@@ -111,7 +96,7 @@ export const brandKitRoutes: FastifyPluginAsyncZod = async (app) => {
 			const user = requireUser(req, reply);
 			if (!user) return;
 
-			const member = await requireMember(req.params.workspaceId, user.id, "VIEWER");
+			const member = await requireWorkspaceMember(app, req.params.workspaceId, user.id, "VIEWER");
 			if (!member) {
 				reply.code(403);
 				return { error: "Not a member of this workspace" };
@@ -148,7 +133,7 @@ export const brandKitRoutes: FastifyPluginAsyncZod = async (app) => {
 			const user = requireUser(req, reply);
 			if (!user) return;
 
-			const member = await requireMember(req.params.workspaceId, user.id, "OWNER");
+			const member = await requireWorkspaceMember(app, req.params.workspaceId, user.id, "OWNER");
 			if (!member) {
 				reply.code(403);
 				return { error: "Only workspace OWNER can edit brand kit" };
@@ -186,7 +171,7 @@ export const brandKitRoutes: FastifyPluginAsyncZod = async (app) => {
 			const user = requireUser(req, reply);
 			if (!user) return;
 
-			const member = await requireMember(req.params.workspaceId, user.id, "OWNER");
+			const member = await requireWorkspaceMember(app, req.params.workspaceId, user.id, "OWNER");
 			if (!member) {
 				reply.code(403);
 				return { error: "Only workspace OWNER can upload brand assets" };
@@ -239,7 +224,7 @@ export const brandKitRoutes: FastifyPluginAsyncZod = async (app) => {
 			const user = requireUser(req, reply);
 			if (!user) return;
 
-			const member = await requireMember(req.params.workspaceId, user.id, "OWNER");
+			const member = await requireWorkspaceMember(app, req.params.workspaceId, user.id, "OWNER");
 			if (!member) {
 				reply.code(403);
 				return { error: "Only workspace OWNER can delete brand kit" };

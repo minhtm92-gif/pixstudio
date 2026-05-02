@@ -17,8 +17,9 @@
 | Sprint 6 | Tier quotas + Crossian RAG ingest | PR #14 | ✅ Merged + deployed |
 | Sprint 7 | Internal alpha — KPI dashboard + Bug reports | PR #15 | ✅ Merged + deployed |
 | Sprint 8 | MVP polish — Bug widget + Admin KPI Dashboard UI | PR #16 | ✅ Merged + deployed |
+| **Sprint 9 UI** | **5 UI pages per preview chốt 2026-04-30 (Dashboard + Asset Studio + Admin Stock + Admin GPU + Sidebar)** | **PR #17** | ✅ Merged + deployed |
 
-**Total**: 16 PRs merged, ~10,000 LOC across apps/api + apps/web + packages/quick-create.
+**Total**: 17 PRs merged, ~11,500 LOC across apps/api + apps/web + packages/quick-create.
 
 ## Production state
 

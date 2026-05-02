@@ -27,8 +27,10 @@ interface WorkflowCard {
 	requiredTier: "standard" | "pro" | "max";
 	platform: { ratio: string; defaultDurationSec: number };
 	pace: "slow" | "medium" | "fast";
-	disabled?: boolean; // true if anh chưa fill workflow form
-	seasonalLockout?: boolean; // true if outside Tet window
+	/** Workflow scaffold ready, template content lands in a future sprint. */
+	disabled?: boolean;
+	/** True when current date is outside Tết window (Dec–Feb). */
+	seasonalLockout?: boolean;
 }
 
 const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
@@ -51,7 +53,7 @@ const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
 		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 45 },
 		pace: "slow",
-		disabled: true, // anh chưa fill workflow form
+		disabled: true,
 	},
 	{
 		id: "demo-product",
@@ -152,7 +154,7 @@ export default function WorkflowsPage() {
 						Choose a workflow
 					</h1>
 					<p className="text-muted-foreground">
-						8 workflow tune sẵn cho creator Việt Nam · Standard / Pro / Max tier
+						9 workflow tune sẵn cho creator Việt Nam · Standard / Pro / Max tier
 					</p>
 				</div>
 
@@ -211,7 +213,7 @@ export default function WorkflowsPage() {
 									</div>
 									{wf.disabled && (
 										<p className="pt-2 text-amber-600 text-xs dark:text-amber-400">
-											⏳ Anh đang fill template content
+											Coming soon — template content lands next sprint.
 										</p>
 									)}
 								</div>

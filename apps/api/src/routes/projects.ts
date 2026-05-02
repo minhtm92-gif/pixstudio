@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireUser } from "../plugins/require-auth.js";
+import { requireUser, requireWorkspaceMember } from "../plugins/require-auth.js";
 
 const ProjectSchema = z.object({
   id: z.string(),
@@ -37,13 +37,6 @@ const serializeProject = (p: {
 });
 
 export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
-  // Helper: ensure caller is member of workspace.
-  async function ensureMember(workspaceId: string, userId: string) {
-    return app.prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId, userId } },
-    });
-  }
-
   app.get("/", {
     schema: {
       querystring: z.object({
@@ -58,7 +51,7 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
     handler: async (req, reply) => {
       const user = requireUser(req, reply);
       if (!user) return;
-      const member = await ensureMember(req.query.workspaceId, user.id);
+      const member = await requireWorkspaceMember(app, req.query.workspaceId, user.id);
       if (!member) {
         reply.status(403);
         return { error: "Not a member of this workspace" };
@@ -69,6 +62,18 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         where,
         orderBy: { lastEditedAt: "desc" },
         take: 100,
+        // Drop heavy editorStateJson from list payload — fetch via /:id/editor-state.
+        select: {
+          id: true,
+          workspaceId: true,
+          name: true,
+          description: true,
+          thumbnailKey: true,
+          archived: true,
+          createdAt: true,
+          updatedAt: true,
+          lastEditedAt: true,
+        },
       });
       return { items: items.map(serializeProject) };
     },
@@ -86,8 +91,8 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
     handler: async (req, reply) => {
       const user = requireUser(req, reply);
       if (!user) return;
-      const member = await ensureMember(req.body.workspaceId, user.id);
-      if (!member || member.role === "VIEWER") {
+      const member = await requireWorkspaceMember(app, req.body.workspaceId, user.id, "EDITOR");
+      if (!member) {
         reply.status(403);
         return { error: "Need EDITOR or OWNER role to create projects" };
       }
@@ -120,7 +125,7 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         reply.status(404);
         return { error: "Project not found" };
       }
-      const member = await ensureMember(project.workspaceId, user.id);
+      const member = await requireWorkspaceMember(app, project.workspaceId, user.id);
       if (!member) {
         reply.status(403);
         return { error: "Not a member of this workspace" };
@@ -143,7 +148,7 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         reply.code(404);
         return { error: "Project not found" };
       }
-      const member = await ensureMember(project.workspaceId, user.id);
+      const member = await requireWorkspaceMember(app, project.workspaceId, user.id);
       if (!member) {
         reply.code(403);
         return { error: "Not a member" };
@@ -180,8 +185,8 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         reply.status(404);
         return { error: "Project not found" };
       }
-      const member = await ensureMember(existing.workspaceId, user.id);
-      if (!member || member.role === "VIEWER") {
+      const member = await requireWorkspaceMember(app, existing.workspaceId, user.id, "EDITOR");
+      if (!member) {
         reply.status(403);
         return { error: "Need EDITOR or OWNER role to update projects" };
       }
@@ -226,8 +231,8 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         reply.code(404);
         return { error: "Project not found" };
       }
-      const member = await ensureMember(project.workspaceId, user.id);
-      if (!member || member.role === "VIEWER") {
+      const member = await requireWorkspaceMember(app, project.workspaceId, user.id, "EDITOR");
+      if (!member) {
         reply.code(403);
         return { error: "Need EDITOR or OWNER role" };
       }
@@ -316,8 +321,8 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         reply.code(404);
         return { error: "Project not found" };
       }
-      const member = await ensureMember(project.workspaceId, user.id);
-      if (!member || member.role === "VIEWER") {
+      const member = await requireWorkspaceMember(app, project.workspaceId, user.id, "EDITOR");
+      if (!member) {
         reply.code(403);
         return { error: "Need EDITOR or OWNER role" };
       }
@@ -363,7 +368,7 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         reply.code(404);
         return { error: "Project not found" };
       }
-      const member = await ensureMember(project.workspaceId, user.id);
+      const member = await requireWorkspaceMember(app, project.workspaceId, user.id);
       if (!member) {
         reply.code(403);
         return { error: "Not a member" };
@@ -414,8 +419,8 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         reply.code(404);
         return { error: "Project not found" };
       }
-      const member = await ensureMember(project.workspaceId, user.id);
-      if (!member || member.role === "VIEWER") {
+      const member = await requireWorkspaceMember(app, project.workspaceId, user.id, "EDITOR");
+      if (!member) {
         reply.code(403);
         return { error: "Need EDITOR or OWNER role" };
       }
@@ -472,8 +477,8 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         reply.status(404);
         return { error: "Project not found" };
       }
-      const member = await ensureMember(existing.workspaceId, user.id);
-      if (!member || member.role !== "OWNER") {
+      const member = await requireWorkspaceMember(app, existing.workspaceId, user.id, "OWNER");
+      if (!member) {
         reply.status(403);
         return { error: "Only OWNER can delete projects" };
       }

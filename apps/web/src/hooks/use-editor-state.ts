@@ -8,8 +8,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "https://pixstudio-api.fly.dev";
+import { apiFetch } from "@/lib/api-client";
 
 interface EditorStateResponse {
 	projectId: string;
@@ -28,14 +27,9 @@ export function useEditorState(projectId: string) {
 		const fetchState = async () => {
 			setLoading(true);
 			try {
-				const res = await fetch(`${API_BASE}/api/projects/${projectId}/editor-state`, {
-					credentials: "include",
-				});
-				if (!res.ok) {
-					const errBody = (await res.json().catch(() => ({}))) as { error?: string };
-					throw new Error(errBody.error ?? `HTTP ${res.status}`);
-				}
-				const json = (await res.json()) as EditorStateResponse;
+				const json = await apiFetch<EditorStateResponse>(
+					`/api/projects/${projectId}/editor-state`,
+				);
 				if (!cancelled) setData(json);
 			} catch (err) {
 				if (!cancelled) {

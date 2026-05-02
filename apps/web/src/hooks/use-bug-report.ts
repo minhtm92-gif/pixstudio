@@ -9,8 +9,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-
-const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "https://pixstudio-api.fly.dev";
+import { apiFetch } from "@/lib/api-client";
 
 export type BugSeverity = "P0" | "P1" | "P2" | "P3";
 
@@ -38,19 +37,11 @@ export function useBugReport() {
 				severity: input.severity ?? "P2",
 				pageUrl: typeof window !== "undefined" ? window.location.href : undefined,
 				userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
-				// consoleErrors: Sprint 8 polish — capture from window.onerror buffer
 			};
-			const res = await fetch(`${API_BASE}/api/bug-reports`, {
+			const json = await apiFetch<{ id: string }>("/api/bug-reports", {
 				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(body),
 			});
-			if (!res.ok) {
-				const errBody = (await res.json().catch(() => ({}))) as { error?: string };
-				throw new Error(errBody.error ?? `HTTP ${res.status}`);
-			}
-			const json = (await res.json()) as { id: string };
 			setBugId(json.id);
 			setState("success");
 		} catch (err) {

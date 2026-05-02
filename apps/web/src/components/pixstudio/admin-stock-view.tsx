@@ -9,8 +9,7 @@
 import { useEffect, useState } from "react";
 import { Plus, AlertTriangle, CheckCircle2, XCircle, Lock } from "lucide-react";
 import { Sidebar } from "./sidebar";
-
-const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "https://pixstudio-api.fly.dev";
+import { apiFetch, type PixStudioUser } from "@/lib/api-client";
 
 interface StockAccount {
 	id: string;
@@ -25,12 +24,7 @@ interface StockAccount {
 }
 
 interface AdminStockViewProps {
-	user?: {
-		name: string;
-		tier: "STANDARD" | "PRO" | "MAX";
-		buildsUsed: number;
-		buildsLimit: number;
-	};
+	user?: PixStudioUser;
 }
 
 const VENDOR_LABELS = {
@@ -48,21 +42,13 @@ export function AdminStockView({ user }: AdminStockViewProps) {
 	useEffect(() => {
 		const fetchAccounts = async () => {
 			try {
-				const res = await fetch(`${API_BASE}/api/admin/stock-accounts`, {
-					credentials: "include",
-				});
-				if (!res.ok) {
-					if (res.status === 401 || res.status === 403) {
-						setError("Admin role required. Login với account ADMIN.");
-					} else {
-						setError(`HTTP ${res.status}`);
-					}
-					return;
-				}
-				const data = (await res.json()) as { items: StockAccount[] };
+				const data = await apiFetch<{ items: StockAccount[] }>(
+					"/api/admin/stock-accounts",
+				);
 				setAccounts(data.items);
 			} catch (err) {
-				setError(err instanceof Error ? err.message : "Failed to load");
+				const msg = err instanceof Error ? err.message : "Failed to load";
+				setError(msg.startsWith("HTTP 40") ? "Admin role required. Login với account ADMIN." : msg);
 			} finally {
 				setLoading(false);
 			}
@@ -257,10 +243,8 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
 		setSubmitting(true);
 		setError(null);
 		try {
-			const res = await fetch(`${API_BASE}/api/admin/stock-accounts`, {
+			await apiFetch("/api/admin/stock-accounts", {
 				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					vendor,
 					label,
@@ -269,10 +253,6 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
 					resetDayOfMonth: 1,
 				}),
 			});
-			if (!res.ok) {
-				const errBody = (await res.json().catch(() => ({}))) as { error?: string };
-				throw new Error(errBody.error ?? `HTTP ${res.status}`);
-			}
 			window.location.reload();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to add");
