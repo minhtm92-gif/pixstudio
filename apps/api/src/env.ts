@@ -37,6 +37,9 @@ const apiEnvSchema = z.object({
 	R2_ACCESS_KEY_ID: z.string().optional(),
 	R2_SECRET_ACCESS_KEY: z.string().optional(),
 	R2_ENDPOINT_URL: z.string().url().optional(),
+	R2_BUCKET_UPLOADS: z.string().default("pxs-vn-sg-uploads"),
+	R2_BUCKET_RENDERS: z.string().default("pxs-vn-sg-renders"),
+	R2_BUCKET_DERIVED: z.string().default("pxs-vn-sg-derived"),
 
 	// AI providers (each optional — registry skips missing)
 	DO_INFERENCE_TOKEN: z.string().optional(),
@@ -46,6 +49,7 @@ const apiEnvSchema = z.object({
 	BYTEPLUS_SECRET_KEY: z.string().optional(),
 	ELEVENLABS_API_KEY: z.string().optional(),
 	FAL_API_KEY: z.string().optional(),
+	DEEPGRAM_API_KEY: z.string().optional(),
 });
 
 export type ApiEnv = z.infer<typeof apiEnvSchema>;

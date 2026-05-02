@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import { CapabilityRouter, ProviderRegistry } from "@pixstudio/ai-services";
+import { apiEnv } from "../env.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -17,13 +18,13 @@ declare module "fastify" {
 const aiMeshImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
   const registry = new ProviderRegistry({
     secrets: {
-      BYTEPLUS_ACCESS_KEY: process.env.BYTEPLUS_ACCESS_KEY,
-      BYTEPLUS_SECRET_KEY: process.env.BYTEPLUS_SECRET_KEY,
-      GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-      ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
-      DO_INFERENCE_TOKEN: process.env.DO_INFERENCE_TOKEN,
-      FAL_API_KEY: process.env.FAL_API_KEY,
-      DEEPGRAM_API_KEY: process.env.DEEPGRAM_API_KEY,
+      BYTEPLUS_ACCESS_KEY: apiEnv.BYTEPLUS_ACCESS_KEY,
+      BYTEPLUS_SECRET_KEY: apiEnv.BYTEPLUS_SECRET_KEY,
+      GEMINI_API_KEY: apiEnv.GEMINI_API_KEY,
+      ELEVENLABS_API_KEY: apiEnv.ELEVENLABS_API_KEY,
+      DO_INFERENCE_TOKEN: apiEnv.DO_INFERENCE_TOKEN,
+      FAL_API_KEY: apiEnv.FAL_API_KEY,
+      DEEPGRAM_API_KEY: apiEnv.DEEPGRAM_API_KEY,
     },
   });
 

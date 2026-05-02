@@ -48,7 +48,9 @@ const authImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
     },
   });
 
-  app.decorate("auth", auth);
+  // better-auth types vs fastify decorate generic type narrows imperfectly
+  // (BetterAuthOptions vs concrete config). Safe to cast — runtime use is correct.
+  app.decorate("auth", auth as unknown as ReturnType<typeof betterAuth>);
 
   // Mount better-auth handler at /api/auth/*
   app.all("/api/auth/*", async (req, reply) => {

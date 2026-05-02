@@ -64,7 +64,7 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         return { error: "Not a member of this workspace" };
       }
       const where: Record<string, unknown> = { workspaceId: req.query.workspaceId };
-      if (req.query.archived !== undefined) where.archived = req.query.archived;
+      if (req.query.archived !== undefined) where["archived"] = req.query.archived;
       const items = await app.prisma.project.findMany({
         where,
         orderBy: { lastEditedAt: "desc" },

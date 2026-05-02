@@ -106,7 +106,8 @@ export const assetsRoutes: FastifyPluginAsyncZod = async (app) => {
         ContentType: req.body.mimeType,
         ContentLength: req.body.sizeBytes,
       });
-      const uploadUrl = await getSignedUrl(app.r2, cmd, { expiresIn: 900 }); // 15 min
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @smithy/types dedupe issue, runtime is fine
+      const uploadUrl = await getSignedUrl(app.r2 as any, cmd as any, { expiresIn: 900 }); // 15 min
       return {
         uploadUrl,
         r2Key,
@@ -191,7 +192,8 @@ export const assetsRoutes: FastifyPluginAsyncZod = async (app) => {
         Bucket: app.r2Buckets.uploads,
         Key: asset.r2Key,
       });
-      const downloadUrl = await getSignedUrl(app.r2, cmd, { expiresIn: req.query.expiresIn });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @smithy/types dedupe issue, runtime is fine
+      const downloadUrl = await getSignedUrl(app.r2 as any, cmd as any, { expiresIn: req.query.expiresIn });
       return { downloadUrl, expiresIn: req.query.expiresIn };
     },
   });
