@@ -1,261 +1,201 @@
-# Quick Create — ElevenLabs Voice Library Form
+# Quick Create — ElevenLabs Voice Library (Full Import + UI Preview)
 
-*Per SCOPE.md §13. Anh research ElevenLabs marketplace + pick 8-12 voices VN/EN. Em wire `packages/workflows/voice-library.ts` registry.*
-
----
-
-## How to research voices
-
-1. Anh login ElevenLabs dashboard: https://elevenlabs.io/app/voice-library
-2. Filter by:
-   - Language: Vietnamese (vi) hoặc English (en)
-   - Gender: Male / Female
-   - Age: Young / Middle aged / Old
-   - Use case: News / Audiobook / Conversational / Commercial
-3. Click voice → "Add to Library" → copy voice ID (format `21m00Tcm4TlvDq8ikWAM`)
-4. Test voice with sample VN text trước khi commit
-
-## Test sample text (anh paste vào ElevenLabs preview)
-
-**Vietnamese sample (~30 words):**
-```
-Chào bạn, đây là PixStudio — nền tảng tạo video AI dành riêng cho người sáng tạo nội dung Việt Nam. Hôm nay, chúng ta sẽ cùng khám phá cách biến ý tưởng thành video chuyên nghiệp chỉ trong vài phút.
-```
-
-**English sample (~30 words):**
-```
-Welcome to PixStudio, an AI video platform built for content creators in Vietnam and beyond. Today, let's explore how to turn your ideas into professional videos in just a few minutes.
-```
+*Updated 2026-05-02 per anh feedback: take ALL ElevenLabs voices + user preview ngay UI khi dùng PixStudio. Anh không cần cherry-pick voices.*
 
 ---
 
-## Voice picks (anh fill)
+## Architecture overview
 
-### Vietnamese voices (recommend 5)
+Voice library = full mirror of ElevenLabs marketplace + user's cloned voices (Max tier).
 
-#### 1. VN Senior Male
+```
+ElevenLabs API (source of truth)
+   ├─ GET /v1/voices                              → cached 1h Upstash Redis
+   │  └─ filter language=vi/en, age, gender, use_case
+   ├─ GET /v1/voices/{id}/sample (preview audio)  → cached R2 24h
+   └─ POST /v1/text-to-speech/{id} (full TTS)     → on-demand, charges quota
 
-```yaml
-id: vn-senior-male-01
-voiceId: <TBD>
-voiceName: <TBD ElevenLabs marketplace name>
-language: vi
-gender: male
-ageRange: senior   # 50+ tone
-useCase: ad-narrator
-defaultStability: 0.7
-defaultSimilarityBoost: 0.85
-defaultSpeed: 0.9
-sampleAudioUrl: <TBD R2 path em sẽ generate sample>
-description: <TBD - notes về tone, e.g. "trầm, ấm, gravitas">
+Tier gating (per SCOPE.md):
+   Standard  → 50 most-popular voices visible (filtered by ElevenLabs popularity)
+   Pro       → 200 voices (community curated subset)
+   Max       → all marketplace + voice cloning (Instant + Pro Voice Cloning)
 ```
 
-#### 2. VN Senior Female
+## API endpoints (Phase 1 Sprint 2)
 
-```yaml
-id: vn-senior-female-01
-voiceId: <TBD>
-voiceName: <TBD>
-language: vi
-gender: female
-ageRange: senior
-useCase: ad-narrator
-defaultStability: 0.7
-defaultSimilarityBoost: 0.85
-defaultSpeed: 0.9
-sampleAudioUrl: <TBD>
-description: <TBD>
+```
+GET  /api/voices?lang=vi&gender=female&page=1&pageSize=50
+     → list voices filtered + cached
+     → tier-gated (Standard sees 50, Pro 200, Max all)
+
+GET  /api/voices/:voiceId
+     → full voice metadata + sample preview URL
+
+POST /api/voices/:voiceId/preview
+     body: { text: "Sample text 100 chars max" }
+     → generate ad-hoc TTS preview, returns audio URL R2 24h cache
+     → rate-limited 10/min/user (preview ≠ production TTS)
+
+POST /api/voices/clone (Max tier only)
+     body: { name: string, sampleAudioR2Key: string }
+     → ElevenLabs Instant Voice Cloning ($0.02/clone)
+     → save voiceId vào user.clonedVoices[]
+
+GET  /api/voices/clones (Max tier only)
+     → list user's cloned voices
 ```
 
-#### 3. VN Young Male (Gen Z hooks)
+## UI preview pattern
 
-```yaml
-id: vn-young-male-01
-voiceId: <TBD>
-voiceName: <TBD>
-language: vi
-gender: male
-ageRange: young   # 18-30
-useCase: tiktok-reel
-defaultStability: 0.4
-defaultSimilarityBoost: 0.7
-defaultSpeed: 1.1
-sampleAudioUrl: <TBD>
-description: <TBD trẻ trung, energetic>
+Per anh feedback, voices có UI preview INSIDE PixStudio. Component spec:
+
+```typescript
+// packages/quick-create/src/components/VoicePicker.tsx (Sprint 2)
+interface VoicePickerProps {
+  selectedVoiceId?: string;
+  onSelect: (voiceId: string) => void;
+  language?: 'vi' | 'en';
+  tier: 'standard' | 'pro' | 'max';
+}
+
+// Render:
+// - Search bar (filter by voice name)
+// - Filter chips: language, gender, age range, use case
+// - Voice cards (paginated 20/page):
+//   - Avatar (initials or gen image)
+//   - Voice name
+//   - Tags: VN/EN flag, gender, age, use case
+//   - "Listen" button → click plays sample audio (cached R2 mp3 ~5s)
+//   - "Custom preview" button → modal with textarea + "Generate sample" → plays user's text in this voice
+//   - "Use this voice" button → onSelect(voiceId)
+// - Tier badge if voice requires Pro/Max
 ```
 
-#### 4. VN Young Female (Gen Z + millennial)
+## Sample preview text (default)
 
-```yaml
-id: vn-young-female-01
-voiceId: <TBD>
-voiceName: <TBD>
-language: vi
-gender: female
-ageRange: young
-useCase: vlog-conversational
-defaultStability: 0.5
-defaultSimilarityBoost: 0.75
-defaultSpeed: 1.05
-sampleAudioUrl: <TBD>
-description: <TBD>
+When user clicks "Listen" on a voice card, em play pre-generated 5s sample. ElevenLabs marketplace already provides preview URL for each voice via `voice.preview_url`.
+
+When user clicks "Custom preview", em call `POST /api/voices/:voiceId/preview` with their text (max 100 chars to limit cost). Default text per language:
+
+```typescript
+const SAMPLE_TEXTS = {
+  vi: "Chào bạn, đây là PixStudio — nền tảng tạo video AI dành cho creator Việt Nam.",
+  en: "Welcome to PixStudio, an AI video platform built for content creators worldwide.",
+};
 ```
 
-#### 5. VN Middle-aged Female (parents segment)
+Cost per custom preview: ~$0.0003 (100 chars × $0.000003/char Pro tier ElevenLabs).
 
-```yaml
-id: vn-middle-female-01
-voiceId: <TBD>
-voiceName: <TBD>
-language: vi
-gender: female
-ageRange: middle   # 30-45
-useCase: family-product
-defaultStability: 0.6
-defaultSimilarityBoost: 0.8
-defaultSpeed: 1.0
-sampleAudioUrl: <TBD>
-description: <TBD>
+## Database schema additions (Phase 1 Sprint 2)
+
+```prisma
+model VoiceCacheEntry {
+  voiceId       String   @id  // ElevenLabs voice ID
+  voiceName     String
+  language      String   // "vi", "en", "multilingual"
+  gender        String   // "male", "female", "neutral"
+  ageRange      String   // "young", "middle", "senior", "child"
+  useCase       String?  // "narrator", "conversational", "commercial", etc.
+  category      String?  // "premade", "cloned", "professional"
+  popularityScore Float? // for tier filtering (Standard sees top-50)
+  isPublic      Boolean  @default(true) // false = private voice not in marketplace
+  previewUrlR2Key String? // R2 key cho cached sample audio
+  metadataJson  Json     // raw ElevenLabs response cho future fields
+  cachedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([language, gender])
+  @@index([popularityScore])
+  @@map("voice_cache")
+}
+
+model UserClonedVoice {
+  id            String   @id @default(uuid())
+  userId        String
+  voiceId       String   // ElevenLabs voice ID returned from clone API
+  name          String
+  sampleR2Key   String   // original sample anh uploaded for cloning
+  createdAt     DateTime @default(now())
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, voiceId])
+  @@index([userId])
+  @@map("user_cloned_voices")
+}
 ```
 
-### English voices (recommend 3)
+## Cron sync job (Sprint 2)
 
-#### 6. EN Professional Male (B2B / SaaS)
-
-```yaml
-id: en-pro-male-01
-voiceId: <TBD>
-voiceName: <TBD>
-language: en
-gender: male
-ageRange: middle
-useCase: corporate-narrator
-defaultStability: 0.7
-defaultSimilarityBoost: 0.85
-defaultSpeed: 1.0
-sampleAudioUrl: <TBD>
-description: <TBD>
+Daily at 03:00 UTC (PixStudio off-peak):
+```typescript
+// apps/api/src/workers/voice-cache-sync.ts
+// 1. GET https://api.elevenlabs.io/v1/voices (paginated)
+// 2. Upsert each voice into voice_cache table
+// 3. For each voice without cached preview, fetch preview_url + save R2
+// 4. Drop voices removed from marketplace
+// 5. Compute popularityScore (use ElevenLabs ranking or community votes)
 ```
 
-#### 7. EN Conversational Female
+Cost daily: 0$ (read-only API call + R2 storage minimal).
 
-```yaml
-id: en-conv-female-01
-voiceId: <TBD>
-voiceName: <TBD>
-language: en
-gender: female
-ageRange: young
-useCase: vlog-conversational
-defaultStability: 0.5
-defaultSimilarityBoost: 0.75
-defaultSpeed: 1.05
-sampleAudioUrl: <TBD>
-description: <TBD>
+## Cost estimates
+
+ElevenLabs API pricing (verified 2026-05):
+- Listing voices: free unlimited
+- Sample preview audio: free (provided by marketplace)
+- Custom preview TTS: ~$0.000003/char (Pro tier $99/mo prepaid)
+- Voice cloning: ~$0.02 per clone (Instant) or $80 one-time (Pro Voice Cloning)
+
+PixStudio expected daily volume:
+- 100 active users × 5 preview clicks/day × 100 chars = ~$0.15/day
+- 10 cloning requests/month (Max users only) = $0.20/month
+- Total voice library cost: <$10/month at 1000 daily users
+
+## Voice popularity tier mapping
+
+Algorithm to assign tier visibility:
+```typescript
+function tierForVoice(v: VoiceCacheEntry): 'standard' | 'pro' | 'max' {
+  // Top 50 by popularity = standard tier
+  if (v.popularityScore >= POP_TOP_50) return 'standard';
+  // Top 200 = pro tier
+  if (v.popularityScore >= POP_TOP_200) return 'pro';
+  // Rest = max tier
+  return 'max';
+}
 ```
 
-#### 8. EN Storytelling Narrator
+For Phase 1 launch:
+- Standard tier voices: 50 (em pick top-50 popular)
+- Pro tier voices: 150 additional (total 200 visible)
+- Max tier: all marketplace + voice cloning
 
-```yaml
-id: en-narrator-male-01
-voiceId: <TBD>
-voiceName: <TBD>
-language: en
-gender: male
-ageRange: middle
-useCase: storytelling-cinematic
-defaultStability: 0.8
-defaultSimilarityBoost: 0.9
-defaultSpeed: 0.95
-sampleAudioUrl: <TBD>
-description: <TBD>
-```
+## Migration from old form
 
-### Optional bonus voices
+Anh không cần fill curated 8-12 voice IDs trong cũ form. Em xóa form cũ + replace với pattern này. Anh chỉ cần:
 
-#### 9. VN Child / Kid voice (parents content có khi cần)
+1. ✅ Verify `ELEVENLABS_API_KEY` set Doppler (đã có)
+2. ✅ Confirm tier ElevenLabs subscription (Pro $99/mo recommend cho 500K chars/mo)
+3. Phase 1 Sprint 2 implementation:
+   - Em build VoiceCacheEntry table + cron sync
+   - Em build VoicePicker component
+   - Em build /api/voices/* endpoints
+4. UAT: anh test 5 voices có preview audio play đúng
 
-```yaml
-id: vn-child-female-01
-voiceId: <TBD - check ElevenLabs nếu có VN child voice>
-voiceName: <TBD>
-language: vi
-gender: female
-ageRange: child
-useCase: kid-character
-defaultStability: 0.5
-defaultSimilarityBoost: 0.7
-defaultSpeed: 1.0
-sampleAudioUrl: <TBD>
-description: <TBD - cho character avatar talking child>
-```
+## Voice cloning UX (Max tier feature)
 
-#### 10. VN Asian-accent EN (anh muốn voice EN có VN accent cho VN-EN bilingual content?)
+Sprint 2 polish:
+- Settings page → "Voice Cloning" section
+- Upload audio sample (1-3 minute MP3/WAV)
+- "Name your voice" input (required)
+- "Clone" button → calls ElevenLabs Instant Voice Cloning ($0.02 charged)
+- New voice appears immediately in VoicePicker với badge "Your cloned voice"
+- Max 5 cloned voices per Max user (per SCOPE.md tier quota)
+- Delete cloned voice → calls ElevenLabs DELETE /v1/voices/:id
 
-```yaml
-id: vn-en-bilingual-01
-voiceId: <TBD>
-voiceName: <TBD>
-language: en
-gender: <TBD>
-ageRange: <TBD>
-useCase: bilingual-narrator
-sampleAudioUrl: <TBD>
-description: <TBD>
-```
+## Reference
 
----
-
-## Cost estimate
-
-ElevenLabs pricing (as of 2026-05):
-- **Creator tier $22/mo**: 100K chars/mo, 30+ premium voices, voice cloning
-- **Pro tier $99/mo**: 500K chars/mo, 192K chars carryover
-
-Per video:
-- 30s ad ~80 words ~400 chars = $0.001 (Creator) - $0.0002 (Pro)
-- 5min YouTube ~750 words ~3,750 chars = $0.011 (Creator) - $0.0019 (Pro)
-- 100 videos/day = $0.10-1.10/day TTS cost
-
-Anh đã add `ELEVENLABS_API_KEY` Doppler. Tier nào anh đang dùng?
-
----
-
-## Voice cloning (Pro tier feature)
-
-Per SCOPE.md §13 plugin "Clone giọng" (Max tier):
-- User upload 1-3 minute audio sample
-- ElevenLabs Instant Voice Cloning ($0.02 per clone)
-- Generated voice ID save user's `cloned_voices[]` field
-- Pro Workspace voice picker shows cloned voices + library voices
-
-Anh confirm:
-- Max tier only? Hay Pro tier cũng có clone?
-- Quota: how many cloned voices per user? (ElevenLabs limit 10-50/account)
-
----
-
-## Final checklist anh
-
-- [ ] Login ElevenLabs marketplace
-- [ ] Test 8-12 voices với VN/EN sample text
-- [ ] Pick best voice ID per slot
-- [ ] Fill `<TBD>` fields above
-- [ ] Confirm tier + quota allocations
-- [ ] Notify em → wire `packages/workflows/voice-library.ts` + Voice picker UI
-
----
-
-## Em wire Sprint 2
-
-Sau khi anh fill, em sẽ:
-1. Generate sample audio mỗi voice (TTS the VN/EN sample text), upload R2 `pxs-vn-sg-derived/voice-samples/`
-2. Voice picker UI shows:
-   - Voice name + flag (VN/EN)
-   - Age range badge
-   - Use case tag
-   - Click → preview sample audio
-   - "Use this voice" button
-3. Workflow templates reference voice IDs by `voice-library.ts` slug
-
-Editor team có thể request thêm voices later, anh add vào library file → em ship Sprint 2.
+- ElevenLabs API docs: https://elevenlabs.io/docs/api-reference
+- Voice Library API: https://api.elevenlabs.io/v1/voices
+- Pricing: https://elevenlabs.io/pricing
