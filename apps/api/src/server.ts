@@ -2,8 +2,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import websocket from "@fastify/websocket";
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { apiEnv } from "./env.js";
 import { healthRoutes } from "./routes/health.js";
 import { projectsRoutes } from "./routes/projects.js";
 import { workspacesRoutes } from "./routes/workspaces.js";
@@ -13,11 +15,13 @@ import aiMeshPlugin from "./plugins/ai-mesh.js";
 import prismaPlugin from "./plugins/prisma.js";
 import r2Plugin from "./plugins/r2.js";
 import authPlugin from "./plugins/auth.js";
+import requireAuthPlugin from "./plugins/require-auth.js";
 
 const app = Fastify({
+  genReqId: () => crypto.randomUUID(),
   logger: {
-    level: process.env.LOG_LEVEL ?? "info",
-    transport: process.env.NODE_ENV === "production" ? undefined : { target: "pino-pretty" },
+    level: apiEnv.LOG_LEVEL,
+    transport: apiEnv.NODE_ENV === "production" ? undefined : { target: "pino-pretty" },
   },
 }).withTypeProvider<ZodTypeProvider>();
 
@@ -25,8 +29,9 @@ app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
 await app.register(cors, {
-  origin: process.env.CORS_ORIGINS?.split(",") ?? ["http://localhost:3000"],
+  origin: apiEnv.CORS_ORIGINS?.split(",") ?? ["http://localhost:3000"],
   credentials: true,
+  maxAge: 86400, // 24h preflight cache (audit H5)
 });
 
 await app.register(helmet, {
@@ -38,8 +43,12 @@ await app.register(rateLimit, {
   timeWindow: "1 minute",
 });
 
+// WebSocket support — required by Quick Create build event stream (audit H7)
+await app.register(websocket);
+
 await app.register(prismaPlugin);
 await app.register(authPlugin);
+await app.register(requireAuthPlugin);
 await app.register(r2Plugin);
 await app.register(aiMeshPlugin);
 await app.register(healthRoutes, { prefix: "/health" });
@@ -48,8 +57,8 @@ await app.register(workspacesRoutes, { prefix: "/api/workspaces" });
 await app.register(assetsRoutes, { prefix: "/api/assets" });
 await app.register(aiRoutes, { prefix: "/api/ai" });
 
-const PORT = Number(process.env.PORT ?? 8080);
-const HOST = process.env.HOST ?? "0.0.0.0";
+const PORT = apiEnv.PORT;
+const HOST = apiEnv.HOST;
 
 try {
   await app.listen({ port: PORT, host: HOST });

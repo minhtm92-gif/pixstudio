@@ -8,6 +8,7 @@ import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { requireUser } from "../plugins/require-auth.js";
 
 const AssetTypeSchema = z.enum([
   "VIDEO",
@@ -45,6 +46,26 @@ const buildR2Key = (projectId: string, type: string, name: string) => {
 };
 
 export const assetsRoutes: FastifyPluginAsyncZod = async (app) => {
+  // Helper: ensure caller is member of workspace owning this project (audit C1).
+  async function requireProjectAccess(
+    projectId: string,
+    userId: string,
+    minRole: "VIEWER" | "EDITOR" | "OWNER" = "EDITOR",
+  ) {
+    const project = await app.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { workspaceId: true },
+    });
+    if (!project) return null;
+    const member = await app.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: project.workspaceId, userId } },
+    });
+    if (!member) return null;
+    const rank = { VIEWER: 0, EDITOR: 1, OWNER: 2 };
+    if (rank[member.role as keyof typeof rank] < rank[minRole]) return null;
+    return { project, member };
+  }
+
   // === POST /presign — request presigned PUT URL ===
   app.post("/presign", {
     schema: {
@@ -62,10 +83,18 @@ export const assetsRoutes: FastifyPluginAsyncZod = async (app) => {
           bucket: z.string(),
           expiresIn: z.number(),
         }),
+        403: z.object({ error: z.string() }),
         503: z.object({ error: z.string() }),
       },
     },
     handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const access = await requireProjectAccess(req.body.projectId, user.id, "EDITOR");
+      if (!access) {
+        reply.status(403);
+        return { error: "Need EDITOR or OWNER role on workspace owning this project" };
+      }
       if (!app.r2) {
         reply.status(503);
         return { error: "R2 not configured (check R2_ACCESS_KEY_ID env)" };
@@ -77,7 +106,8 @@ export const assetsRoutes: FastifyPluginAsyncZod = async (app) => {
         ContentType: req.body.mimeType,
         ContentLength: req.body.sizeBytes,
       });
-      const uploadUrl = await getSignedUrl(app.r2, cmd, { expiresIn: 900 }); // 15 min
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @smithy/types dedupe issue, runtime is fine
+      const uploadUrl = await getSignedUrl(app.r2 as any, cmd as any, { expiresIn: 900 }); // 15 min
       return {
         uploadUrl,
         r2Key,
@@ -162,7 +192,8 @@ export const assetsRoutes: FastifyPluginAsyncZod = async (app) => {
         Bucket: app.r2Buckets.uploads,
         Key: asset.r2Key,
       });
-      const downloadUrl = await getSignedUrl(app.r2, cmd, { expiresIn: req.query.expiresIn });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @smithy/types dedupe issue, runtime is fine
+      const downloadUrl = await getSignedUrl(app.r2 as any, cmd as any, { expiresIn: req.query.expiresIn });
       return { downloadUrl, expiresIn: req.query.expiresIn };
     },
   });
