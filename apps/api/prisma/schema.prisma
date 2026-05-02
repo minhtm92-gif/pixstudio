@@ -402,6 +402,49 @@ model RagDocument {
 }
 
 // =============================================================================
+// BUG REPORTS (Sprint 7 — internal alpha bug bash)
+// =============================================================================
+
+enum BugSeverity {
+  P0
+  P1
+  P2
+  P3
+}
+
+enum BugStatus {
+  OPEN
+  IN_PROGRESS
+  FIXED
+  WONT_FIX
+  DUPLICATE
+}
+
+model BugReport {
+  id           String      @id @default(uuid())
+  reporterId   String
+  workspaceId  String?
+  projectId    String?
+  title        String
+  description  String      @db.Text
+  severity     BugSeverity @default(P2)
+  status       BugStatus   @default(OPEN)
+  pageUrl      String?
+  userAgent    String?
+  consoleErrors String?    @db.Text
+  screenshotR2Key String?
+  assignedTo   String?
+  resolvedAt   DateTime?
+  resolution   String?     @db.Text
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([reporterId])
+  @@index([status, severity])
+  @@map("bug_reports")
+}
+
+// =============================================================================
 // QUICK CREATE (Phase 1 Sprint 2)
 // =============================================================================
 
