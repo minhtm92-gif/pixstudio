@@ -6,6 +6,13 @@ primary_region = "sin"
   dockerfile = "../../Dockerfile"
   dockerfile_target = "runtime"
 
+[deploy]
+  # First baseline-resolve marks 20260501000000_baseline as applied without
+  # running it (idempotent: noop after first time, since prod was originally
+  # synced via `db push` and tables already exist). Subsequent migrations run
+  # via `prisma migrate deploy` — only NEW migrations execute.
+  release_command = "bash -c 'bunx prisma migrate resolve --applied 20260501000000_baseline 2>/dev/null || true; bunx prisma migrate deploy'"
+
 [env]
   PORT = "8080"
   HOST = "0.0.0.0"
