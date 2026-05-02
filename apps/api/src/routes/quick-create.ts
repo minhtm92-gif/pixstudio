@@ -547,24 +547,104 @@ Return JSON ONLY (no markdown fence) matching:
 
 	// ─── Path B reverse engineer (Sprint 5) ─────────────────────────
 
+	// Sprint 5: Path B reverse engineer pipeline.
+	// Creates ReverseEngineerJob, returns 202 + jobId. Worker (Sprint 5 polish)
+	// spawns GPU + runs FFmpeg → PySceneDetect → Demucs → Scribe → Chromaprint →
+	// Gemini visual → editor state assembly.
 	app.post("/sessions/:sessionId/reverse-engineer", {
-		schema: { params: SessionIdParamsSchema },
-		handler: async (_req, reply) => {
-			reply.code(501);
+		schema: {
+			params: SessionIdParamsSchema,
+			body: z
+				.object({
+					sourceUrl: z.string().url().optional(),
+					sourceAssetId: z.string().uuid().optional(),
+				})
+				.refine((b) => Boolean(b.sourceUrl) !== Boolean(b.sourceAssetId), {
+					message: "Provide exactly one of sourceUrl or sourceAssetId",
+				}),
+		},
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			const result = await loadSession(req.params.sessionId, user.id);
+			if (result.error) return handleSessionError(reply, result.error);
+			const session = result.session;
+
+			if (session.mode !== "PATH_B") {
+				reply.code(400);
+				return { error: "Session mode is not PATH_B — recreate session with mode=pathB" };
+			}
+
+			// Tier gate: Path B Standard 5min/mo, Pro 30min/mo, Max 120min/mo (Q41).
+			// Sprint 6 wires real quota check via UsageTracker. v1 just create job.
+
+			// Idempotent: if a job already exists for this session, return existing.
+			const existing = await app.prisma.reverseEngineerJob.findUnique({
+				where: { sessionId: session.id },
+			});
+			if (existing) {
+				return {
+					sessionId: session.id,
+					jobId: existing.id,
+					status: existing.status,
+					progress: existing.progress,
+					message: "Job already exists for this session",
+				};
+			}
+
+			const job = await app.prisma.reverseEngineerJob.create({
+				data: {
+					sessionId: session.id,
+					userId: user.id,
+					workspaceId: session.workspaceId,
+					sourceUrl: req.body.sourceUrl,
+					sourceAssetId: req.body.sourceAssetId,
+					status: "PENDING",
+					progress: 0,
+				},
+			});
+
+			// TODO Sprint 5 polish: enqueue BullMQ job to spawn GPU + run pipeline.
+			// const queueJob = await app.queues.reverseEngineerBuild.add("re-job", {
+			//   jobId: job.id, sessionId: session.id, userId: user.id,
+			// });
+
+			reply.code(202);
 			return {
-				error: "Not Implemented",
-				message: "Reverse engineer pipeline GPU spawn Sprint 5",
+				sessionId: session.id,
+				jobId: job.id,
+				status: job.status,
+				progress: 0,
+				message: "Job created. Worker will spawn GPU + run pipeline (Sprint 5 polish wires worker).",
 			};
 		},
 	});
 
 	app.get("/sessions/:sessionId/reverse-engineer", {
 		schema: { params: SessionIdParamsSchema },
-		handler: async (_req, reply) => {
-			reply.code(501);
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			const result = await loadSession(req.params.sessionId, user.id);
+			if (result.error) return handleSessionError(reply, result.error);
+			const session = result.session;
+
+			const job = await app.prisma.reverseEngineerJob.findUnique({
+				where: { sessionId: session.id },
+			});
+			if (!job) {
+				reply.code(404);
+				return { error: "No reverse engineer job for this session" };
+			}
 			return {
-				error: "Not Implemented",
-				message: "Reverse engineer status Sprint 5",
+				sessionId: session.id,
+				jobId: job.id,
+				status: job.status,
+				progress: job.progress,
+				errorMessage: job.errorMessage,
+				totalCostUsd: Number(job.totalCostUsd),
+				totalDurationMs: job.totalDurationMs,
+				completedAt: job.completedAt?.toISOString() ?? null,
 			};
 		},
 	});
