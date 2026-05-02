@@ -1,5 +1,6 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { requireUser } from "../plugins/require-auth.js";
 
 const RegionSchema = z.enum(["VN_SG", "EU", "US"]);
 const TierSchema = z.enum(["STANDARD", "PRO", "MAX"]);
@@ -45,14 +46,16 @@ const slugify = (name: string) =>
     .slice(0, 60);
 
 export const workspacesRoutes: FastifyPluginAsyncZod = async (app) => {
+  // List workspaces: scoped to current user's memberships only (audit C1).
   app.get("/", {
     schema: {
-      querystring: z.object({ ownerId: z.string().optional() }),
       response: { 200: z.object({ items: z.array(WorkspaceSchema) }) },
     },
-    handler: async (req) => {
+    handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
       const items = await app.prisma.workspace.findMany({
-        where: req.query.ownerId ? { ownerId: req.query.ownerId } : undefined,
+        where: { members: { some: { userId: user.id } } },
         orderBy: { createdAt: "desc" },
         take: 100,
       });
@@ -60,11 +63,11 @@ export const workspacesRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
+  // Create workspace: req.user.id authoritative — body.ownerId removed (audit C1).
   app.post("/", {
     schema: {
       body: z.object({
         name: z.string().min(1).max(120),
-        ownerId: z.string(),
         slug: z.string().min(2).max(60).optional(),
         region: RegionSchema.optional(),
         billingTier: TierSchema.optional(),
@@ -72,17 +75,19 @@ export const workspacesRoutes: FastifyPluginAsyncZod = async (app) => {
       response: { 201: WorkspaceSchema, 409: z.object({ error: z.string() }) },
     },
     handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
       const slug = req.body.slug ?? slugify(req.body.name);
       try {
         const ws = await app.prisma.workspace.create({
           data: {
             name: req.body.name,
             slug,
-            ownerId: req.body.ownerId,
+            ownerId: user.id,
             region: req.body.region,
             billingTier: req.body.billingTier,
             members: {
-              create: { userId: req.body.ownerId, role: "OWNER" },
+              create: { userId: user.id, role: "OWNER" },
             },
           },
         });
@@ -99,12 +104,31 @@ export const workspacesRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
+  // Helper: ensure caller is member of workspace (any role).
+  async function requireMember(workspaceId: string, userId: string) {
+    return app.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+  }
+
+  // Get workspace by id — must be member (audit C1).
   app.get("/:id", {
     schema: {
       params: z.object({ id: z.string() }),
-      response: { 200: WorkspaceSchema, 404: z.object({ error: z.string() }) },
+      response: {
+        200: WorkspaceSchema,
+        403: z.object({ error: z.string() }),
+        404: z.object({ error: z.string() }),
+      },
     },
     handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const member = await requireMember(req.params.id, user.id);
+      if (!member) {
+        reply.status(403);
+        return { error: "Not a member of this workspace" };
+      }
       const ws = await app.prisma.workspace.findUnique({ where: { id: req.params.id } });
       if (!ws) {
         reply.status(404);
@@ -114,6 +138,7 @@ export const workspacesRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
+  // List members — must be member (audit C1).
   app.get("/:id/members", {
     schema: {
       params: z.object({ id: z.string() }),
@@ -128,9 +153,17 @@ export const workspacesRoutes: FastifyPluginAsyncZod = async (app) => {
             }),
           ),
         }),
+        403: z.object({ error: z.string() }),
       },
     },
-    handler: async (req) => {
+    handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const member = await requireMember(req.params.id, user.id);
+      if (!member) {
+        reply.status(403);
+        return { error: "Not a member of this workspace" };
+      }
       const items = await app.prisma.workspaceMember.findMany({
         where: { workspaceId: req.params.id },
         orderBy: { joinedAt: "asc" },
@@ -146,16 +179,25 @@ export const workspacesRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
+  // Add member — only OWNER can add (audit C3 RBAC).
   app.post("/:id/members", {
     schema: {
       params: z.object({ id: z.string() }),
       body: z.object({ userId: z.string(), role: RoleSchema.optional() }),
       response: {
         201: z.object({ id: z.string(), userId: z.string(), role: RoleSchema, joinedAt: z.string() }),
+        403: z.object({ error: z.string() }),
         409: z.object({ error: z.string() }),
       },
     },
     handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const callerMember = await requireMember(req.params.id, user.id);
+      if (!callerMember || callerMember.role !== "OWNER") {
+        reply.status(403);
+        return { error: "Only OWNER can add members" };
+      }
       try {
         const m = await app.prisma.workspaceMember.create({
           data: {

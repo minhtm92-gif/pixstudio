@@ -15,6 +15,7 @@ import aiMeshPlugin from "./plugins/ai-mesh.js";
 import prismaPlugin from "./plugins/prisma.js";
 import r2Plugin from "./plugins/r2.js";
 import authPlugin from "./plugins/auth.js";
+import requireAuthPlugin from "./plugins/require-auth.js";
 
 const app = Fastify({
   genReqId: () => crypto.randomUUID(),
@@ -47,6 +48,7 @@ await app.register(websocket);
 
 await app.register(prismaPlugin);
 await app.register(authPlugin);
+await app.register(requireAuthPlugin);
 await app.register(r2Plugin);
 await app.register(aiMeshPlugin);
 await app.register(healthRoutes, { prefix: "/health" });

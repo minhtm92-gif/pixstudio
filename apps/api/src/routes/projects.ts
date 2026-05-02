@@ -1,5 +1,6 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { requireUser } from "../plugins/require-auth.js";
 
 const ProjectSchema = z.object({
   id: z.string(),
@@ -36,17 +37,33 @@ const serializeProject = (p: {
 });
 
 export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
+  // Helper: ensure caller is member of workspace.
+  async function ensureMember(workspaceId: string, userId: string) {
+    return app.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+  }
+
   app.get("/", {
     schema: {
       querystring: z.object({
-        workspaceId: z.string().optional(),
+        workspaceId: z.string(),
         archived: z.coerce.boolean().optional(),
       }),
-      response: { 200: z.object({ items: z.array(ProjectSchema) }) },
+      response: {
+        200: z.object({ items: z.array(ProjectSchema) }),
+        403: z.object({ error: z.string() }),
+      },
     },
-    handler: async (req) => {
-      const where: Record<string, unknown> = {};
-      if (req.query.workspaceId) where.workspaceId = req.query.workspaceId;
+    handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const member = await ensureMember(req.query.workspaceId, user.id);
+      if (!member) {
+        reply.status(403);
+        return { error: "Not a member of this workspace" };
+      }
+      const where: Record<string, unknown> = { workspaceId: req.query.workspaceId };
       if (req.query.archived !== undefined) where.archived = req.query.archived;
       const items = await app.prisma.project.findMany({
         where,
@@ -64,9 +81,16 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         name: z.string().min(1).max(120),
         description: z.string().max(500).optional(),
       }),
-      response: { 201: ProjectSchema },
+      response: { 201: ProjectSchema, 403: z.object({ error: z.string() }) },
     },
     handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const member = await ensureMember(req.body.workspaceId, user.id);
+      if (!member || member.role === "VIEWER") {
+        reply.status(403);
+        return { error: "Need EDITOR or OWNER role to create projects" };
+      }
       const project = await app.prisma.project.create({
         data: {
           workspaceId: req.body.workspaceId,
@@ -82,13 +106,24 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get("/:id", {
     schema: {
       params: z.object({ id: z.string() }),
-      response: { 200: ProjectSchema, 404: z.object({ error: z.string() }) },
+      response: {
+        200: ProjectSchema,
+        403: z.object({ error: z.string() }),
+        404: z.object({ error: z.string() }),
+      },
     },
     handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
       const project = await app.prisma.project.findUnique({ where: { id: req.params.id } });
       if (!project) {
         reply.status(404);
         return { error: "Project not found" };
+      }
+      const member = await ensureMember(project.workspaceId, user.id);
+      if (!member) {
+        reply.status(403);
+        return { error: "Not a member of this workspace" };
       }
       return serializeProject(project);
     },
@@ -102,36 +137,58 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
         description: z.string().max(500).nullable().optional(),
         archived: z.boolean().optional(),
       }),
-      response: { 200: ProjectSchema, 404: z.object({ error: z.string() }) },
+      response: {
+        200: ProjectSchema,
+        403: z.object({ error: z.string() }),
+        404: z.object({ error: z.string() }),
+      },
     },
     handler: async (req, reply) => {
-      try {
-        const project = await app.prisma.project.update({
-          where: { id: req.params.id },
-          data: { ...req.body, lastEditedAt: new Date() },
-        });
-        return serializeProject(project);
-      } catch {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const existing = await app.prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!existing) {
         reply.status(404);
         return { error: "Project not found" };
       }
+      const member = await ensureMember(existing.workspaceId, user.id);
+      if (!member || member.role === "VIEWER") {
+        reply.status(403);
+        return { error: "Need EDITOR or OWNER role to update projects" };
+      }
+      const project = await app.prisma.project.update({
+        where: { id: req.params.id },
+        data: { ...req.body, lastEditedAt: new Date() },
+      });
+      return serializeProject(project);
     },
   });
 
   app.delete("/:id", {
     schema: {
       params: z.object({ id: z.string() }),
-      response: { 204: z.null(), 404: z.object({ error: z.string() }) },
+      response: {
+        204: z.null(),
+        403: z.object({ error: z.string() }),
+        404: z.object({ error: z.string() }),
+      },
     },
     handler: async (req, reply) => {
-      try {
-        await app.prisma.project.delete({ where: { id: req.params.id } });
-        reply.status(204);
-        return null;
-      } catch {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const existing = await app.prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!existing) {
         reply.status(404);
         return { error: "Project not found" };
       }
+      const member = await ensureMember(existing.workspaceId, user.id);
+      if (!member || member.role !== "OWNER") {
+        reply.status(403);
+        return { error: "Only OWNER can delete projects" };
+      }
+      await app.prisma.project.delete({ where: { id: req.params.id } });
+      reply.status(204);
+      return null;
     },
   });
 };
