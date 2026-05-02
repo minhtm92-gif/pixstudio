@@ -3,6 +3,7 @@ import Script from "next/script";
 import "./globals.css";
 import { Toaster } from "../components/ui/sonner";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
+import { BugReportWidget } from "../components/bug-report-widget";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { baseMetaData } from "./metadata";
 import { BotIdClient } from "botid/client";
@@ -60,6 +61,7 @@ export default function RootLayout({
 							data-track-sessions={false}
 						/>
 						{children}
+						<BugReportWidget />
 					</TooltipProvider>
 				</ThemeProvider>
 			</body>
