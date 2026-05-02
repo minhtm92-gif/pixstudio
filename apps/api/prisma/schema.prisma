@@ -18,14 +18,21 @@ datasource db {
 // AUTH (better-auth integration — Sprint 1)
 // =============================================================================
 
+enum SystemRole {
+  ADMIN  // anh + Tùng — full system access (stock library, tier overrides, view all workspaces, billing)
+  MOD    // senior marketers — review flagged content, support tickets, Crossian KB updates
+  USER   // default — scoped to own workspaces
+}
+
 model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  emailVerified Boolean  @default(false)
+  id            String     @id @default(uuid())
+  email         String     @unique
+  emailVerified Boolean    @default(false)
   name          String?
   image         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  systemRole    SystemRole @default(USER)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   accounts          Account[]
   sessions          Session[]

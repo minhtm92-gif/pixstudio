@@ -10,6 +10,9 @@
 
 import type { AudienceChip, LookFeelChip, PlatformChip, WorkflowTemplate } from "./types.js";
 import { ALL_TEMPLATES } from "./templates/index.js";
+import { AUDIENCE_CHIPS } from "./data/audiences.js";
+import { LOOK_FEEL_CHIPS } from "./data/look-feel.js";
+import { PLATFORM_CHIPS } from "./data/platforms.js";
 
 // ─── Workflow registry ─────────────────────────────────────────────
 
@@ -58,76 +61,6 @@ export const workflowRegistry = new WorkflowRegistry(ALL_TEMPLATES);
 
 // ─── Chip registry ─────────────────────────────────────────────────
 
-// PLACEHOLDER: stubs to be replaced when anh fills chip-content-form.md.
-
-const PLACEHOLDER_AUDIENCES: AudienceChip[] = [
-	{
-		id: "senior-50plus-vn",
-		displayVi: "Senior 50+ VN",
-		displayEn: "Senior 50+ Vietnam",
-		toneHint: "Trầm, rõ ràng, tránh slang",
-		active: true,
-	},
-	{
-		id: "genz-tiktok",
-		displayVi: "Gen Z TikTok",
-		displayEn: "Gen Z TikTok",
-		toneHint: "Trendy, viral hooks, slang OK",
-		active: true,
-	},
-];
-
-const PLACEHOLDER_LOOK_FEEL: LookFeelChip[] = [
-	{
-		id: "cinematic",
-		displayVi: "Cinematic",
-		displayEn: "Cinematic",
-		colorPalette: "Teal-Orange",
-		transitionStyle: "Smooth fade",
-		musicGenre: "Orchestral / Cinematic",
-		active: true,
-	},
-	{
-		id: "vlog",
-		displayVi: "Vlog daily",
-		displayEn: "Vlog daily",
-		colorPalette: "Natural",
-		transitionStyle: "Cuts + zoom",
-		musicGenre: "Lo-fi / Indie",
-		active: true,
-	},
-];
-
-const PLACEHOLDER_PLATFORMS: PlatformChip[] = [
-	{
-		id: "tiktok",
-		displayVi: "TikTok",
-		displayEn: "TikTok",
-		ratio: "9:16",
-		maxDurationSec: 60,
-		formatExport: "mp4 H.264",
-		active: true,
-	},
-	{
-		id: "youtube-shorts",
-		displayVi: "YouTube Shorts",
-		displayEn: "YouTube Shorts",
-		ratio: "9:16",
-		maxDurationSec: 60,
-		formatExport: "mp4 H.264",
-		active: true,
-	},
-	{
-		id: "youtube-long",
-		displayVi: "YouTube long",
-		displayEn: "YouTube long-form",
-		ratio: "16:9",
-		maxDurationSec: 900,
-		formatExport: "mp4 H.264",
-		active: true,
-	},
-];
-
 class ChipRegistry<T extends { id: string; active: boolean }> {
 	private chips = new Map<string, T>();
 
@@ -149,6 +82,6 @@ class ChipRegistry<T extends { id: string; active: boolean }> {
 	}
 }
 
-export const audienceRegistry = new ChipRegistry<AudienceChip>(PLACEHOLDER_AUDIENCES);
-export const lookFeelRegistry = new ChipRegistry<LookFeelChip>(PLACEHOLDER_LOOK_FEEL);
-export const platformRegistry = new ChipRegistry<PlatformChip>(PLACEHOLDER_PLATFORMS);
+export const audienceRegistry = new ChipRegistry<AudienceChip>(AUDIENCE_CHIPS);
+export const lookFeelRegistry = new ChipRegistry<LookFeelChip>(LOOK_FEEL_CHIPS);
+export const platformRegistry = new ChipRegistry<PlatformChip>(PLATFORM_CHIPS);

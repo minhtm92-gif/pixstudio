@@ -7,7 +7,8 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { workflowRegistry } from "@pixstudio/quick-create";
+import { workflowRegistry, isCrossianRagEligible } from "@pixstudio/quick-create";
+import type { Language } from "@pixstudio/quick-create";
 import { requireUser } from "../plugins/require-auth.js";
 
 const SessionIdParamsSchema = z.object({
@@ -179,7 +180,10 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 	app.post("/sessions/:sessionId/outline", {
 		schema: {
 			params: SessionIdParamsSchema,
-			querystring: z.object({ live: z.coerce.boolean().optional() }),
+			querystring: z.object({
+				live: z.coerce.boolean().optional(),
+				lang: z.enum(["vi", "en"]).optional(),
+			}),
 		},
 		handler: async (req, reply) => {
 			const user = requireUser(req, reply);
@@ -219,17 +223,39 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 				// Real LLM call via DO Inference (priority channel for llm.chat).
 				const sceneCount = workflow.platform.defaultDurationSec <= 30 ? 4 : 8;
 				const totalSec = workflow.platform.defaultDurationSec;
-				const language = workflow.defaultLanguage;
-				const llmPrompt = `You are a video script outline generator for PixStudio (Vietnamese video platform).
+				const language = (req.query.lang as Language | undefined) ?? workflow.defaultLanguage;
+
+				// Crossian RAG gating (Q72 chốt): only `dropshipping` + `facebook-ad`
+				// tags + language=`en` → fire RAG. v1 stub returns empty pattern;
+				// Sprint 6 wires real pgvector similarity search.
+				const ragEligible = isCrossianRagEligible(workflow, language);
+				const crossianContext = ragEligible
+					? "\n[CROSSIAN PATTERNS — apply 5-act structure when crafting hook + script]\n" +
+					  "Hook variants: emotional / identity / gift / problem-solution\n" +
+					  "Scene structure: Hook(0-3s) → Product Intro(3-7s) → Demo(7-15s) → Lifestyle(15-35s) → Social Proof+CTA(35-end)\n" +
+					  "Text overlay examples: '4-Way Stretch' | '50% OFF Today Only' | 'Join 100,000+ Happy Customers'\n"
+					: "";
+
+				const platformChipDefault =
+					workflow.platform.ratio === "9:16"
+						? "tiktok"
+						: workflow.platform.ratio === "4:5"
+							? "fb-ad-vertical"
+							: workflow.platform.ratio === "1:1"
+								? "fb-feed"
+								: "youtube-long";
+
+				const llmPrompt = `You are a video script outline generator for PixStudio.
 
 User prompt: ${session.prompt}
 
 Workflow: ${workflow.name} — ${workflow.description}
+Workflow tags: ${workflow.tags.join(", ") || "none"}
 Default language: ${language}
 Pace: ${workflow.pace}
 Total duration: ${totalSec}s
 Platform: ${workflow.platform.ratio} ratio
-
+${crossianContext}
 Generate exactly ${sceneCount} scenes that sum to ${totalSec}s ±5%.
 
 Each scene must have:
@@ -240,9 +266,9 @@ Each scene must have:
 - durationSec (number, scene length)
 
 Also suggest:
-- 1-3 audience chips (from set: senior-50plus-vn, genz-tiktok, young-parents, office-worker, ecom-seller)
-- 1-2 look-feel chips (from set: cinematic, vlog, ad-style, documentary, kawaii)
-- 1 platform chip (default ${workflow.platform.ratio === "9:16" ? "tiktok" : "youtube-long"})
+- 1-3 audience chips (from registry: ecom-buyer, senior-50plus, office-worker, young-parents, gen-z-tiktok, gen-z-shorts, gen-z-youtube, mom-baby, fitness-enthusiast, beauty-shopper, food-lover, pet-owner, tech-adopter, gift-giver, pain-back, pain-skin, pain-weight, entertainment-seeker, family, student, ecom-seller, live-stream-host, gamer, travel, self-improve)
+- 1-2 look-feel chips (from registry: ugc-authentic, ad-style, cinematic, vlog, comedy, dramatic, kawaii, food-porn, lifestyle, tech-modern, minimal, retro-80s)
+- 1 platform chip (default ${platformChipDefault})
 
 Return JSON ONLY (no markdown fence) matching:
 {"title": string, "scenes": [{"id","order","script","mediaQuery","durationSec"}], "suggestedChips": {"audiences": string[], "lookFeel": string[], "platform": string}}`;

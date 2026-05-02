@@ -110,8 +110,30 @@ export const WorkflowTemplateSchema = z.object({
 	inputMode: z.enum(["prompt", "script-paste"]).default("prompt"),
 	sceneSplitStrategy: z.enum(["sentence", "paragraph", "manual-markers"]).optional(),
 	maxScriptLength: z.number().int().positive().optional(),
+
+	// Workflow tags — drive Crossian RAG eligibility (Q72: only `dropshipping` +
+	// `facebook-ad` tags trigger RAG when `language === "en"`).
+	// Other tags (`ugc`, `review`, `entertainment`, `narrative`, `seasonal`,
+	// `vn-cultural`, `demo`, `b2b`, `utility`) carry semantic meta only.
+	tags: z.array(z.string()).default([]),
 });
 export type WorkflowTemplate = z.infer<typeof WorkflowTemplateSchema>;
+
+/**
+ * Crossian RAG eligibility — invisible backend logic per anh Minh chốt:
+ * - language must be EN (not VN)
+ * - workflow.tags must include "dropshipping" OR "facebook-ad"
+ *
+ * UC1 (UGC review), UC3 (YT entertainment), UC4 (Short entertainment) → never fire.
+ * UC2 (Dropshipping FB ad EN) → fires.
+ */
+export function isCrossianRagEligible(
+	workflow: WorkflowTemplate,
+	language: Language,
+): boolean {
+	if (language !== "en") return false;
+	return workflow.tags.includes("dropshipping") || workflow.tags.includes("facebook-ad");
+}
 
 // ─── Chip selectors (View 4 Outline) ───────────────────────────────
 

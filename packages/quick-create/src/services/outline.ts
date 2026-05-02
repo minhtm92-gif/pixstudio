@@ -5,7 +5,30 @@
  */
 
 import { workflowRegistry } from "../registry.js";
-import type { QuickCreateSession, WorkflowTemplate } from "../types.js";
+import { isCrossianRagEligible } from "../types.js";
+import type { Language, QuickCreateSession, WorkflowTemplate } from "../types.js";
+
+/**
+ * Crossian RAG context fetcher — Sprint 6 ingest will populate pgvector with
+ * sanitized EN dropshipping/FB-ad patterns from
+ * `D:\Workspace\Crossian Research\Knowhow_for_AI_Agent\` (Q67 + Q68 sanitize rules).
+ *
+ * v1: stub returns empty. Sprint 6 wires real pgvector similarity search.
+ */
+export interface CrossianRagContext {
+	hookPatterns: string[]; // top-3 emotional/identity/gift/problem hooks
+	sceneStructure: string; // 5-act Crossian structure summary
+	textOverlayExamples: string[]; // top-3 text overlay patterns
+}
+
+export async function fetchCrossianRagContext(
+	_workflow: WorkflowTemplate,
+	_userPrompt: string,
+): Promise<CrossianRagContext | null> {
+	// TODO Sprint 6: query pgvector with prompt embedding, filter by sanitize rules
+	// For now return null → outline service falls back to generic LLM context
+	return null;
+}
 
 export interface OutlineInput {
 	prompt: string;
@@ -49,36 +72,48 @@ export class OutlineService {
 		throw new Error("OutlineService.generate not yet implemented (Phase 1 Sprint 2)");
 	}
 
-	/** Constructs the structured prompt for LLM. */
-	private buildPrompt(input: OutlineInput, workflow: WorkflowTemplate): string {
-		// Phase 1 Sprint 2: design prompt with examples per workflow.id
-		// Reference: docs/quick-create/workflow-templates-form.md samplePrompts
+	/** Constructs the structured prompt for LLM, injecting Crossian RAG context when eligible. */
+	async buildPromptAsync(input: OutlineInput, workflow: WorkflowTemplate): Promise<string> {
+		const language: Language = (input.configOverrides.language as Language) ||
+			workflow.defaultLanguage;
 		const sceneCount = this.estimateSceneCount(
-			input.configOverrides.pace || workflow.pace,
-			workflow.platform.defaultDurationSec
+			(input.configOverrides.pace as "slow" | "medium" | "fast") || workflow.pace,
+			workflow.platform.defaultDurationSec,
 		);
 
+		// Crossian RAG context — only EN dropshipping/facebook-ad workflows fire (Q72).
+		let crossianContext = "";
+		if (isCrossianRagEligible(workflow, language)) {
+			const rag = await fetchCrossianRagContext(workflow, input.prompt);
+			if (rag) {
+				crossianContext = `\n\n[CROSSIAN PATTERNS — apply when crafting hook + script]\n` +
+					`Hook variants: ${rag.hookPatterns.join(" | ")}\n` +
+					`Scene structure: ${rag.sceneStructure}\n` +
+					`Text overlay examples: ${rag.textOverlayExamples.join(" | ")}\n`;
+			}
+		}
+
 		return `
-You are a video script outline generator for PixStudio, a Vietnamese video platform.
+You are a video script outline generator for PixStudio.
 
 User prompt: ${input.prompt}
 
 Workflow: ${workflow.name} (${workflow.description})
-Default language: ${input.configOverrides.language || workflow.defaultLanguage}
+Default language: ${language}
 Pace: ${input.configOverrides.pace || workflow.pace}
 Total duration: ${workflow.platform.defaultDurationSec}s
 Platform: ${workflow.platform.ratio} ratio
 Style hint: ${input.configOverrides.style || "default workflow style"}
-
+${crossianContext}
 Generate ${sceneCount} scenes. Each scene must have:
 - script (1-3 sentences in target language, voiceable in ${this.estimateSceneDuration(workflow.platform.defaultDurationSec, sceneCount)}s)
 - mediaQuery (English keywords for stock search, e.g. "businessman office laptop")
 - durationSec (sum to total duration ±5%)
 
 Also suggest:
-- 1-3 audience chips (from set: senior-50plus-vn, genz-tiktok, young-parents, ...)
-- 1-2 look-feel chips (from set: cinematic, vlog, ad-style, ...)
-- 1 platform chip (default ${workflow.platform.ratio === "9:16" ? "tiktok" : "youtube-long"})
+- 1-3 audience chips (from registry e.g. ecom-buyer, senior-50plus, gen-z-tiktok, mom-baby, pain-back, etc)
+- 1-2 look-feel chips (from registry e.g. ugc-authentic, ad-style, cinematic, comedy, etc)
+- 1 platform chip (default ${workflow.platform.ratio === "9:16" ? "tiktok" : workflow.platform.ratio === "4:5" ? "fb-ad-vertical" : "youtube-long"})
 
 Return strict JSON matching this schema:
 {
