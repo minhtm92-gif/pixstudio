@@ -6,6 +6,7 @@ WORKDIR /repo
 FROM base AS deps
 COPY package.json bun.lock ./
 COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
 COPY packages/ai-services/package.json ./packages/ai-services/
 COPY packages/brand/package.json ./packages/brand/
 COPY packages/quick-create/package.json ./packages/quick-create/
