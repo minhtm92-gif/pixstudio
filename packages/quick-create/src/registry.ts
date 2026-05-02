@@ -9,12 +9,9 @@
  */
 
 import type { AudienceChip, LookFeelChip, PlatformChip, WorkflowTemplate } from "./types.js";
+import { ALL_TEMPLATES } from "./templates/index.js";
 
 // ─── Workflow registry ─────────────────────────────────────────────
-
-// PLACEHOLDER: stubs to be replaced when anh fills workflow forms.
-// Real workflows live in `./templates/<id>.ts` and get auto-loaded.
-const PLACEHOLDER_TEMPLATES: WorkflowTemplate[] = [];
 
 class WorkflowRegistry {
 	private templates = new Map<string, WorkflowTemplate>();
@@ -57,7 +54,7 @@ class WorkflowRegistry {
 	}
 }
 
-export const workflowRegistry = new WorkflowRegistry(PLACEHOLDER_TEMPLATES);
+export const workflowRegistry = new WorkflowRegistry(ALL_TEMPLATES);
 
 // ─── Chip registry ─────────────────────────────────────────────────
 
