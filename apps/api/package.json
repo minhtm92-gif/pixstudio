@@ -7,7 +7,9 @@
     "dev": "bun --hot src/server.ts",
     "start": "bun src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@pixstudio/ai-services": "workspace:*",
@@ -32,7 +34,9 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@vitest/coverage-v8": "^2.1.0",
     "prisma": "^6.0.0",
-    "typescript": "^6.0.0"
+    "typescript": "^6.0.0",
+    "vitest": "^2.1.0"
   }
 }
