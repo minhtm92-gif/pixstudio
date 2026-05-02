@@ -152,8 +152,9 @@ model Project {
   lastEditedAt DateTime @default(now())
   archived     Boolean  @default(false)
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assets    Asset[]
+  workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assets             Asset[]
+  quickCreateSessions QuickCreateSession[]
 
   @@index([workspaceId])
   @@index([lastEditedAt])
@@ -202,6 +203,62 @@ model Asset {
 
   @@index([projectId, type])
   @@map("assets")
+}
+
+// =============================================================================
+// QUICK CREATE (Phase 1 Sprint 2)
+// =============================================================================
+
+enum QuickCreateMode {
+  PATH_A
+  PATH_B
+}
+
+enum BuildStatus {
+  PENDING
+  GENERATING_SCRIPT
+  SYNTHESIZING_VOICE
+  MATCHING_STOCK
+  COMPOSING_SCENES
+  RENDERING_PREVIEW
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model QuickCreateSession {
+  id                 String          @id @default(uuid())
+  userId             String
+  workspaceId        String
+  workflowId         String?
+
+  prompt             String          @db.Text
+  mode               QuickCreateMode @default(PATH_A)
+  pathBSourceJson    Json?
+
+  configOverrides    Json            @default("{}")
+  outlineJson        Json?
+  chipSelectionsJson Json?
+
+  buildJobId         String?
+  buildStatus        BuildStatus     @default(PENDING)
+  buildProgress      Int             @default(0)
+  buildErrorMessage  String?
+
+  projectId          String?
+  totalCostUsd       Decimal         @default(0) @db.Decimal(10, 6)
+
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  completedAt        DateTime?
+
+  project            Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([workflowId])
+  @@index([buildStatus])
+  @@map("quick_create_sessions")
 }
 
 // =============================================================================
