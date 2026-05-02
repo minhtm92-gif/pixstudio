@@ -12,6 +12,7 @@ import { workspacesRoutes } from "./routes/workspaces.js";
 import { assetsRoutes } from "./routes/assets.js";
 import { aiRoutes } from "./routes/ai.js";
 import { quickCreateRoutes } from "./routes/quick-create.js";
+import { voicesRoutes } from "./routes/voices.js";
 import aiMeshPlugin from "./plugins/ai-mesh.js";
 import prismaPlugin from "./plugins/prisma.js";
 import r2Plugin from "./plugins/r2.js";
@@ -60,6 +61,7 @@ await app.register(workspacesRoutes, { prefix: "/api/workspaces" });
 await app.register(assetsRoutes, { prefix: "/api/assets" });
 await app.register(aiRoutes, { prefix: "/api/ai" });
 await app.register(quickCreateRoutes, { prefix: "/api/quick-create" });
+await app.register(voicesRoutes, { prefix: "/api/voices" });
 
 const PORT = apiEnv.PORT;
 const HOST = apiEnv.HOST;
