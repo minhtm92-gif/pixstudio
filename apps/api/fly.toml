@@ -6,6 +6,11 @@ primary_region = "sin"
   dockerfile = "../../Dockerfile"
   dockerfile_target = "runtime"
 
+[deploy]
+  # Run prisma db push to sync QuickCreateSession + voice cache models on each deploy.
+  # Sprint 2.5+ — switch to `prisma migrate deploy` once first migration is generated.
+  release_command = "bunx prisma db push --skip-generate --accept-data-loss"
+
 [env]
   PORT = "8080"
   HOST = "0.0.0.0"
