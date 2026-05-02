@@ -11,7 +11,7 @@ primary_region = "sin"
   # running it (idempotent: noop after first time, since prod was originally
   # synced via `db push` and tables already exist). Subsequent migrations run
   # via `prisma migrate deploy` — only NEW migrations execute.
-  release_command = "bash -c 'bunx prisma migrate resolve --applied 20260501000000_baseline 2>/dev/null || true; bunx prisma migrate deploy'"
+  release_command = "sh -c 'bunx prisma migrate resolve --applied 20260501000000_baseline 2>/dev/null || true; bunx prisma migrate deploy'"
 
 [env]
   PORT = "8080"
