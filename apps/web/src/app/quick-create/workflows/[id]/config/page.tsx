@@ -8,7 +8,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { ConfigForm } from "../../_components/config-form";
+import { ConfigForm } from "../../../_components/config-form";
 
 interface PageProps {
 	params: Promise<{ id: string }>;
