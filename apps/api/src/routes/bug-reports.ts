@@ -211,6 +211,13 @@ export const adminBugReportsRoutes: FastifyPluginAsyncZod = async (app) => {
 			) {
 				updates["resolvedAt"] = new Date();
 			}
+			// Codex P2: clear resolvedAt when reopened (status back to OPEN/IN_PROGRESS)
+			if (
+				req.body.status &&
+				["OPEN", "IN_PROGRESS"].includes(req.body.status)
+			) {
+				updates["resolvedAt"] = null;
+			}
 
 			const updated = (await app.prisma.bugReport.update({
 				where: { id: req.params.id },
