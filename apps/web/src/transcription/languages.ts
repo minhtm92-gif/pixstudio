@@ -1,13 +1,9 @@
+// SCOPE D23: VN/EN only for Phase 1-4. ZH/JA/ES/IT/FR/DE/PT/RU dropped from
+// transcription UI dropdown (OpenCut inherited list). Re-add per-language after
+// product expansion to SEA (Phase 5+, Khmer/Thai/Indonesian).
 export const LANGUAGES = [
+	{ code: "vi", name: "Vietnamese" },
 	{ code: "en", name: "English" },
-	{ code: "es", name: "Spanish" },
-	{ code: "it", name: "Italian" },
-	{ code: "fr", name: "French" },
-	{ code: "de", name: "German" },
-	{ code: "pt", name: "Portuguese" },
-	{ code: "ru", name: "Russian" },
-	{ code: "ja", name: "Japanese" },
-	{ code: "zh", name: "Chinese" },
 ] as const;
 
 export type Language = (typeof LANGUAGES)[number];

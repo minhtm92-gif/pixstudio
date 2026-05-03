@@ -165,7 +165,11 @@ async function stage1Download(ctx: PipelineContext, workDir: string): Promise<{ 
 
 /**
  * Stage 2 — FFmpeg scene boundaries via select filter (CPU, ~5-10s).
- * Replaces PySceneDetect which needs opencv-headless compile on Alpine.
+ *
+ * SCOPE §5 row 18 specifies PySceneDetect primary. Per ADR-007
+ * (`docs/adr/007-ffmpeg-scene-detect-interim.md`), FFmpeg select is interim
+ * because opencv-python-headless lacks musl wheels on Alpine Fly host.
+ * Migrate to PySceneDetect on GPU droplet once gpu-spawn.ts SSH path wired.
  *
  * FFmpeg flow:
  *   1. ffprobe → total duration

@@ -29,6 +29,31 @@ export interface TScene {
 
 export type TrackType = "video" | "text" | "audio" | "graphic" | "effect";
 
+/**
+ * SCOPE §3.1 + CLAUDE.md §12 — PixStudio generative track kinds.
+ *
+ * Phase 1: tracked as element-level provenance metadata on existing TrackTypes
+ * (imageToVideo + textToVideo on VideoTrack; aiVoiceover on AudioTrack;
+ * aiCharacter on VideoTrack with character provenance). Provenance is stored
+ * on the element via `generativeKind` + `generativeProvider`.
+ *
+ * Phase 2: promote to first-class TimelineTrack union members (with their own
+ * Inspector panels + regen workflows) once OpenCut compositor supports
+ * AI-routed render passes.
+ */
+export type GenerativeTrackKind =
+	| "imageToVideo" // Seedance 2.0 (Byteplus, primary) | Kling 3.0 fallback
+	| "textToVideo" // Veo 3 (Gemini API, Max tier) | Seedance 2.0 default
+	| "aiVoiceover" // ElevenLabs TTS
+	| "aiCharacter"; // Seedream avatar | DreamActor (Max tier, no watermark D31)
+
+export const GENERATIVE_TRACK_KINDS: GenerativeTrackKind[] = [
+	"imageToVideo",
+	"textToVideo",
+	"aiVoiceover",
+	"aiCharacter",
+];
+
 interface BaseTrack {
 	id: string;
 	name: string;

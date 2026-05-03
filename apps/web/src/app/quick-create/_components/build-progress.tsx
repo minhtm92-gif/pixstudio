@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Loader2, X, Lightbulb, Bell, MoreVertical } from "lucide-react";
+import { Check, Loader2, X, Lightbulb, Bell, MoreVertical, Images } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { quickCreateApi } from "@/lib/quick-create-api";
 
@@ -196,6 +196,14 @@ export function BuildProgress({
 						{done ? "Complete" : currentStage ? "Running" : "Queued"}
 					</span>
 				</div>
+				<button
+					type="button"
+					className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+					title="Scene preview slideshow (Phase 2)"
+					disabled
+				>
+					<Images className="h-5 w-5" />
+				</button>
 				<div className="flex items-center gap-2 text-muted-foreground text-sm">
 					<Lightbulb className="h-4 w-4" />
 					<span className="hidden md:inline">{TIPS[tipIdx]}</span>

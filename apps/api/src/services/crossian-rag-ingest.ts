@@ -35,10 +35,15 @@ interface SanitizedDoc {
 	appliedRules: string[];
 }
 
+// SCOPE §6 mandates brand sanitize. Per Crossian KB explicit brand mentions:
+// JetJeans / StretchActive / SonaShape (anh Minh confirmed 2026-05-01 round 4).
+// Plus generic Crossian + Selless platform reference + ad/pixel/campaign IDs.
 const BRAND_REPLACEMENTS: Array<[RegExp, string]> = [
-	// Add specific brand names from Crossian KB to replace with [brand]
 	[/\b(Crossian|Crossian LLC)\b/gi, "[brand]"],
 	[/\bSelless\b/g, "[brand-platform]"],
+	[/\bJetJeans\b/gi, "[brand]"],
+	[/\bStretchActive\b/gi, "[brand]"],
+	[/\bSonaShape\b/gi, "[brand]"],
 ];
 
 const URL_PATTERNS_TO_DROP: RegExp[] = [
@@ -51,6 +56,14 @@ const URL_PATTERNS_TO_DROP: RegExp[] = [
 const COGS_PATTERNS: RegExp[] = [
 	/\b(?:cogs|cost of goods sold|margin)\s*[:=]\s*\$?[\d,.]+%?/gi,
 	/\b\$?[\d,.]+\s*(?:cogs|margin)\b/gi,
+];
+
+// SCOPE §6 DROP list — real campaign IDs, ad account IDs, pixel IDs.
+const ID_DROP_PATTERNS: RegExp[] = [
+	/\bact_\d{6,}\b/gi, // Facebook ad account IDs
+	/\bpx_[\w-]{8,}\b/gi, // Pixel IDs
+	/\bcamp_[\w-]{8,}\b/gi, // Campaign IDs
+	/\b[0-9a-f]{32}\b/gi, // 32-char hex (often Pixel/event IDs)
 ];
 
 const SLACK_HANDLE_PATTERN = /@[a-z0-9._-]+|<@[A-Z0-9]+>/g;
@@ -108,6 +121,14 @@ export function sanitizeCrossianContent(
 		if (pattern.test(content)) {
 			content = content.replace(pattern, "[url-redacted]");
 			appliedRules.push("drop-urls");
+		}
+	}
+
+	// Rule 5b: drop FB ad account / pixel / campaign IDs
+	for (const pattern of ID_DROP_PATTERNS) {
+		if (pattern.test(content)) {
+			content = content.replace(pattern, "[id-redacted]");
+			appliedRules.push("drop-ids");
 		}
 	}
 

@@ -2,6 +2,12 @@
  * Kling 3.0 video gen provider via fal.ai.
  * Per ADR-001 + D27: transition vendor (creator opt-in only ~10min/mo cap).
  * Used cho video.imageToVideo (Pro tier transition role).
+ *
+ * NOTE: SCOPE §5 specifies "fal models via DO Inference Engine" channel for
+ * Kling, but DO Inference Engine fal proxy is not yet announced. Per ADR-006
+ * (`docs/adr/006-kling-direct-fal-interim.md`), interim direct fal.ai routing
+ * is acceptable through Phase 2. Migrate when DO Inference Engine ships fal
+ * proxy.
  */
 
 import { FalClient } from "../clients/fal.ts";
