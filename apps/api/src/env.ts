@@ -50,6 +50,8 @@ const apiEnvSchema = z.object({
 	ELEVENLABS_API_KEY: z.string().optional(),
 	FAL_API_KEY: z.string().optional(),
 	DEEPGRAM_API_KEY: z.string().optional(),
+	/** Replicate API for cloud GPU compute (Demucs, Real-ESRGAN, RIFE, etc.). */
+	REPLICATE_API_TOKEN: z.string().optional(),
 });
 
 export type ApiEnv = z.infer<typeof apiEnvSchema>;

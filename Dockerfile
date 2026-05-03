@@ -26,6 +26,10 @@ FROM base AS runtime
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV HOST=0.0.0.0
+# Phase 3 binaries: ffmpeg (render + audio extract), Python + pip (PySceneDetect),
+# yt-dlp (Path B reference video download). Total ~150MB Alpine.
+RUN apk add --no-cache ffmpeg python3 py3-pip yt-dlp \
+  && pip3 install --break-system-packages --no-cache-dir scenedetect[opencv-headless]
 COPY --from=build /repo /repo
 WORKDIR /repo/apps/api
 EXPOSE 8080
