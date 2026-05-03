@@ -54,10 +54,14 @@ export function KpiDashboard() {
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
-		const fetchAll = async () => {
-			// Skip refetch when tab is backgrounded — avoids burning admin quota
-			// while the dashboard isn't visible.
-			if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+		const fetchAll = async (skipIfHidden = false) => {
+			// Only skip on interval ticks when tab is backgrounded. Initial mount
+			// always fetches even if MCP/automation tab visibility = hidden.
+			if (
+				skipIfHidden &&
+				typeof document !== "undefined" &&
+				document.visibilityState === "hidden"
+			) {
 				return;
 			}
 			setLoading(true);
@@ -87,8 +91,8 @@ export function KpiDashboard() {
 			}
 			setLoading(false);
 		};
-		void fetchAll();
-		const interval = setInterval(() => void fetchAll(), 30_000); // 30s refresh
+		void fetchAll(false); // initial — always fetch
+		const interval = setInterval(() => void fetchAll(true), 30_000); // 30s refresh — skip when hidden
 		return () => clearInterval(interval);
 	}, []);
 
