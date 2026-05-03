@@ -1,10 +1,11 @@
 import { z } from "zod";
 
 const webEnvSchema = z.object({
-	// Node
-	NODE_ENV: z.enum(["development", "production", "test"]),
+	// Node — default so client bundles don't crash when NODE_ENV is undefined
+	// or set by Vercel/Edge runtime to a non-standard value at module-eval time.
+	NODE_ENV: z.enum(["development", "production", "test"]).catch("production"),
 	ANALYZE: z.string().optional(),
-	NEXT_RUNTIME: z.enum(["nodejs", "edge"]).optional(),
+	NEXT_RUNTIME: z.enum(["nodejs", "edge"]).optional().catch(undefined),
 
 	// Public
 	NEXT_PUBLIC_SITE_URL: z.url().default("http://localhost:3000"),
@@ -34,4 +35,17 @@ const webEnvSchema = z.object({
 
 export type WebEnv = z.infer<typeof webEnvSchema>;
 
-export const webEnv = webEnvSchema.parse(process.env);
+// Use safeParse + fallback so a single bad env var doesn't crash the entire
+// page (e.g. /login white-screened when NODE_ENV enum failed validation).
+const parsed = webEnvSchema.safeParse(process.env);
+export const webEnv = parsed.success
+	? parsed.data
+	: ({
+		NODE_ENV: "production" as const,
+		NEXT_PUBLIC_SITE_URL: "http://localhost:3000",
+	} as WebEnv);
+
+if (!parsed.success && typeof window !== "undefined") {
+	// eslint-disable-next-line no-console
+	console.warn("[env/web] webEnv validation failed, using safe defaults:", parsed.error.issues);
+}
