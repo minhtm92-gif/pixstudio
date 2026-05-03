@@ -386,16 +386,18 @@ model UsageTracker {
 // =============================================================================
 
 model RagDocument {
-  id           String   @id @default(uuid())
+  id           String                       @id @default(uuid())
   source       String
   contentType  String
   workflowTags String[]
-  language     String   @default("en")
-  content      String   @db.Text
-  sanitizedAt  DateTime @default(now())
+  language     String                       @default("en")
+  content      String                       @db.Text
+  /// pgvector 768-dim embedding (Gemini text-embedding-004). Sprint 36.
+  embedding    Unsupported("vector(768)")?
+  sanitizedAt  DateTime                     @default(now())
   sanitizeRules String[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime                     @default(now())
+  updatedAt    DateTime                     @updatedAt
 
   @@index([contentType])
   @@map("rag_documents")
