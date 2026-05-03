@@ -2,32 +2,41 @@ import type { ElementType } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-	ArrowRightDoubleIcon,
-	ClosedCaptionIcon,
-	Folder03Icon,
-	Happy01Icon,
-	HeadphonesIcon,
-	MagicWand05Icon,
-	TextIcon,
-	Settings01Icon,
-	SlidersHorizontalIcon,
 	ColorsIcon,
+	Folder03Icon,
+	MagicWand05Icon,
+	NoteIcon,
+	StoreIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
+// SCOPE §3.1 mandates 5 tabs: Library / Stock / AI gen / Templates / Brand kit.
+// OpenCut native sub-categories (Media/Sounds/Text/Stickers/Effects/Transitions/
+// Captions/Adjustment/Settings) are surfaced as inner sub-tabs within Library
+// + AI gen + Brand kit (Settings).
 export const TAB_KEYS = [
-	"media",
-	"sounds",
-	"text",
-	"stickers",
+	"library",
+	"stock",
+	"aiGen",
+	"templates",
+	"brandKit",
+] as const;
+
+export type Tab = (typeof TAB_KEYS)[number];
+
+// Library inner sub-tabs (preserve OpenCut media/sounds/text/stickers).
+export const LIBRARY_SUBTABS = ["media", "sounds", "text", "stickers"] as const;
+export type LibrarySubTab = (typeof LIBRARY_SUBTABS)[number];
+
+// AI gen inner sub-tabs (OpenCut effects/transitions/captions/adjustment +
+// new image/video/voice gen entry points to magic tools / Quick Create).
+export const AIGEN_SUBTABS = [
 	"effects",
 	"transitions",
 	"captions",
 	"adjustment",
-	"settings",
 ] as const;
-
-export type Tab = (typeof TAB_KEYS)[number];
+export type AIGenSubTab = (typeof AIGEN_SUBTABS)[number];
 
 const createHugeiconsIcon =
 	({ icon }: { icon: IconSvgElement }) =>
@@ -36,41 +45,25 @@ const createHugeiconsIcon =
 	);
 
 export const tabs = {
-	media: {
+	library: {
 		icon: createHugeiconsIcon({ icon: Folder03Icon }),
-		label: "Media",
+		label: "Library",
 	},
-	sounds: {
-		icon: createHugeiconsIcon({ icon: HeadphonesIcon }),
-		label: "Sounds",
+	stock: {
+		icon: createHugeiconsIcon({ icon: StoreIcon }),
+		label: "Stock",
 	},
-	text: {
-		icon: createHugeiconsIcon({ icon: TextIcon }),
-		label: "Text",
-	},
-	stickers: {
-		icon: createHugeiconsIcon({ icon: Happy01Icon }),
-		label: "Stickers",
-	},
-	effects: {
+	aiGen: {
 		icon: createHugeiconsIcon({ icon: MagicWand05Icon }),
-		label: "Effects",
+		label: "AI gen",
 	},
-	transitions: {
-		icon: createHugeiconsIcon({ icon: ArrowRightDoubleIcon }),
-		label: "Transitions",
+	templates: {
+		icon: createHugeiconsIcon({ icon: NoteIcon }),
+		label: "Templates",
 	},
-	captions: {
-		icon: createHugeiconsIcon({ icon: ClosedCaptionIcon }),
-		label: "Captions",
-	},
-	adjustment: {
-		icon: createHugeiconsIcon({ icon: SlidersHorizontalIcon }),
-		label: "Adjustment",
-	},
-	settings: {
-		icon: createHugeiconsIcon({ icon: Settings01Icon }),
-		label: "Settings",
+	brandKit: {
+		icon: createHugeiconsIcon({ icon: ColorsIcon }),
+		label: "Brand kit",
 	},
 } satisfies Record<
 	Tab,
@@ -84,6 +77,10 @@ export type MediaSortOrder = "asc" | "desc";
 interface AssetsPanelStore {
 	activeTab: Tab;
 	setActiveTab: (tab: Tab) => void;
+	librarySubTab: LibrarySubTab;
+	setLibrarySubTab: (sub: LibrarySubTab) => void;
+	aiGenSubTab: AIGenSubTab;
+	setAIGenSubTab: (sub: AIGenSubTab) => void;
 	highlightMediaId: string | null;
 	requestRevealMedia: (mediaId: string) => void;
 	clearHighlight: () => void;
@@ -99,11 +96,15 @@ interface AssetsPanelStore {
 export const useAssetsPanelStore = create<AssetsPanelStore>()(
 	persist(
 		(set) => ({
-			activeTab: "media",
+			activeTab: "library",
 			setActiveTab: (tab) => set({ activeTab: tab }),
+			librarySubTab: "media",
+			setLibrarySubTab: (sub) => set({ librarySubTab: sub }),
+			aiGenSubTab: "effects",
+			setAIGenSubTab: (sub) => set({ aiGenSubTab: sub }),
 			highlightMediaId: null,
 			requestRevealMedia: (mediaId) =>
-				set({ activeTab: "media", highlightMediaId: mediaId }),
+				set({ activeTab: "library", librarySubTab: "media", highlightMediaId: mediaId }),
 			clearHighlight: () => set({ highlightMediaId: null }),
 			mediaViewMode: "grid",
 			setMediaViewMode: (mode) => set({ mediaViewMode: mode }),

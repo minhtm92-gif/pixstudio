@@ -7,7 +7,7 @@ import {
 	ResizableHandle,
 } from "@/components/ui/resizable";
 import { AssetsPanel } from "@/components/editor/panels/assets";
-import { PropertiesPanel } from "@/components/editor/panels/properties";
+import { InspectorShell } from "@/components/editor/panels/properties/inspector-shell";
 import { Timeline } from "@/timeline/components";
 import { PreviewPanel } from "@/preview/components";
 import { EditorHeader } from "@/components/editor/editor-header";
@@ -86,6 +86,8 @@ function DegradedRendererBanner() {
 }
 
 function EditorLayout() {
+	const layoutParams = useParams();
+	const layoutProjectId = layoutParams.project_id as string;
 	usePasteMedia();
 	const { panels, setPanel } = usePanelStore();
 	const activeScene = useEditor((editor) =>
@@ -187,7 +189,7 @@ function EditorLayout() {
 						maxSize={40}
 						className="min-w-0"
 					>
-						<PropertiesPanel />
+						<InspectorShell projectId={layoutProjectId} />
 					</ResizablePanel>
 				</ResizablePanelGroup>
 			</ResizablePanel>

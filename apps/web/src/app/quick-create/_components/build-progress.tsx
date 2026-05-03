@@ -150,13 +150,15 @@ export function BuildProgress({
 
 	useEffect(() => {
 		if (done) {
-			// Auto-redirect to editor after 1s
+			// Auto-redirect to View 7 Final preview per SCOPE §3.2 7-view flow.
 			const t = setTimeout(() => {
-				router.push(`/editor/${sessionId}`);
+				router.push(
+					`/quick-create/workflows/${workflowId}/preview?sessionId=${sessionId}`,
+				);
 			}, 1500);
 			return () => clearTimeout(t);
 		}
-	}, [done, router, sessionId]);
+	}, [done, router, sessionId, workflowId]);
 
 	const currentStage = stages.find((s) => s.status === "running");
 	const totalWeight = STAGES.reduce((s, st) => s + st.weight, 0);

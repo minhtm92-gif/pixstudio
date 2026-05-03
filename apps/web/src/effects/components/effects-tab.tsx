@@ -205,6 +205,7 @@ export function ClipEffectsTab({
 
 function EmptyView() {
 	const setActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
+	const setAIGenSubTab = useAssetsPanelStore((s) => s.setAIGenSubTab);
 
 	return (
 		<div className="flex flex-col h-full items-center justify-center gap-4 text-center">
@@ -222,7 +223,10 @@ function EmptyView() {
 			<Button
 				variant="default"
 				size="sm"
-				onClick={() => setActiveTab("effects")}
+				onClick={() => {
+					setActiveTab("aiGen");
+					setAIGenSubTab("effects");
+				}}
 			>
 				Open effects
 			</Button>
