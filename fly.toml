@@ -1,9 +1,16 @@
 # PixStudio API on Fly.io
+# This fly.toml lives at repo ROOT (not apps/api/) so Depot uses repo root
+# as build context — needed because the Dockerfile COPYs paths like
+# `apps/api/package.json` and `packages/quick-create/package.json` which
+# only resolve when build context = repo root.
+#
+# Run from repo root:
+#   flyctl deploy --remote-only -a pixstudio-api
 app = "pixstudio-api"
 primary_region = "sin"
 
 [build]
-  dockerfile = "../../Dockerfile"
+  dockerfile = "Dockerfile"
   dockerfile_target = "runtime"
 
 [deploy]
