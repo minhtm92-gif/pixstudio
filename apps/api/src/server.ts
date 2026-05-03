@@ -21,6 +21,7 @@ import { aiRoutes } from "./routes/ai.js";
 import { quickCreateRoutes } from "./routes/quick-create.js";
 import { quickCreateHandoffRoutes } from "./routes/quick-create-handoff.js";
 import { pathBRoutes } from "./routes/path-b.js";
+import { magicToolsRoutes } from "./routes/magic-tools.js";
 import { voicesRoutes } from "./routes/voices.js";
 import aiMeshPlugin from "./plugins/ai-mesh.js";
 import prismaPlugin from "./plugins/prisma.js";
@@ -100,6 +101,7 @@ await app.register(aiRoutes, { prefix: "/api/ai" });
 await app.register(quickCreateRoutes, { prefix: "/api/quick-create" });
 await app.register(quickCreateHandoffRoutes, { prefix: "/api/quick-create" });
 await app.register(pathBRoutes, { prefix: "/api/path-b" });
+await app.register(magicToolsRoutes, { prefix: "/api/magic" });
 await app.register(voicesRoutes, { prefix: "/api/voices" });
 
 const PORT = apiEnv.PORT;

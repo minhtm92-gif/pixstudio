@@ -141,7 +141,11 @@ export async function runDemucs(audioUrl: string): Promise<{
 
 /**
  * Real-ESRGAN super-resolution upscale via Replicate.
- * Used for 4K export (Pro/Max tier) — Phase 4 wire-up.
+ * Used for 4K export (Pro/Max tier) — Phase 4 Sprint 44.
+ *
+ * Cost: ~$0.02 per megapixel input. 1080p frame ~$0.04, 4K frame ~$0.16.
+ * For full video upscale, runs per-frame — typically Phase 4 only on key frames
+ * + post-process via FFmpeg interpolation.
  */
 export async function runRealEsrgan(
 	imageUrl: string,
@@ -151,6 +155,66 @@ export async function runRealEsrgan(
 	const result = await runReplicate<string>({
 		version: "350d32041630ffbe63c8352783a26d94126809164e54085352f8326e53999085",
 		input: { image: imageUrl, scale, face_enhance: false },
+	});
+	return result;
+}
+
+/**
+ * SAM 2 (Segment Anything Model 2) via Replicate — Sprint 43.
+ *
+ * Use cases: background removal, smart object selection, mask generation
+ * for compositing. Editor "Remove background" magic tool.
+ *
+ * Returns mask URL (PNG with alpha channel) — frontend composites client-side
+ * or backend FFmpeg merges with stock background.
+ *
+ * Cost: ~$0.05 per image (640px max edge). 1080p frame ~$0.05.
+ */
+export interface Sam2Output {
+	combined_mask: string;
+	individual_masks: string[];
+}
+
+export async function runSam2Segment(
+	imageUrl: string,
+	clickPoints: Array<{ x: number; y: number; positive: boolean }>,
+): Promise<{ output: Sam2Output; predictionId: string; durationSec: number }> {
+	// meta/sam-2 official model — supports click-point prompting
+	const positivePoints = clickPoints.filter((p) => p.positive).map((p) => `${p.x},${p.y}`);
+	const negativePoints = clickPoints.filter((p) => !p.positive).map((p) => `${p.x},${p.y}`);
+	const result = await runReplicate<Sam2Output>({
+		version: "fe97b453a6455861e3bac769b441ca1f1086110da7466dbb65cf1eecfd60dc83",
+		input: {
+			image: imageUrl,
+			click_coordinates: positivePoints.join(";"),
+			click_labels: clickPoints.filter((p) => p.positive).map(() => "1").join(",") || "1",
+			negative_coordinates: negativePoints.join(";"),
+			use_m2m: true,
+		},
+	});
+	return result;
+}
+
+/**
+ * RIFE frame interpolation via Replicate — Sprint 45.
+ *
+ * Smooth motion: 24fps → 60fps (2.5x), 30fps → 60fps (2x), or arbitrary
+ * factor up to 8x. Used for slow-motion enhancement + jitter smoothing.
+ *
+ * Cost: ~$0.01 per second of input video. 30s clip ~$0.30.
+ */
+export async function runRifeInterpolation(
+	videoUrl: string,
+	multiplier: 2 | 4 | 8 = 2,
+): Promise<{ output: string; predictionId: string; durationSec: number }> {
+	// pollinations/rife model
+	const result = await runReplicate<string>({
+		version: "30f13f1ea4f51e8b8a26bfc5d6b32e024e896d6abf4f8ac0c5bebc55f4ea5168",
+		input: {
+			video: videoUrl,
+			interpolation_factor: multiplier,
+		},
+		timeoutMs: 900_000, // 15min for video processing
 	});
 	return result;
 }
