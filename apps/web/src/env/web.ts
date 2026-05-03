@@ -11,16 +11,21 @@ const webEnvSchema = z.object({
 	NEXT_PUBLIC_API_URL: z.url().optional(),
 	NEXT_PUBLIC_MARBLE_API_URL: z.url().optional(),
 
-	// Server
-	DATABASE_URL: z.string().refine(
-		(url) =>
-			url.startsWith("postgres://") || url.startsWith("postgresql://"),
-		"DATABASE_URL must be a postgres:// or postgresql:// URL",
-	),
-
-	BETTER_AUTH_SECRET: z.string(),
-	UPSTASH_REDIS_REST_URL: z.url(),
-	UPSTASH_REDIS_REST_TOKEN: z.string(),
+	// Server — optional in PixStudio split arch (apps/api owns DB + auth + Redis).
+	// Modules that touch these (auth/server.ts, db/index.ts, auth/rate-limit.ts)
+	// are OpenCut leftover and never invoked at runtime in PixStudio. Keeping
+	// them required broke Vercel build because env vars aren't set on web side.
+	DATABASE_URL: z
+		.string()
+		.refine(
+			(url) =>
+				!url || url.startsWith("postgres://") || url.startsWith("postgresql://"),
+			"DATABASE_URL must be a postgres:// or postgresql:// URL when set",
+		)
+		.optional(),
+	BETTER_AUTH_SECRET: z.string().optional(),
+	UPSTASH_REDIS_REST_URL: z.url().optional(),
+	UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 	// PixStudio doesn't use these OpenCut-inherited stock library integrations
 	MARBLE_WORKSPACE_KEY: z.string().optional(),
 	FREESOUND_CLIENT_ID: z.string().optional(),
