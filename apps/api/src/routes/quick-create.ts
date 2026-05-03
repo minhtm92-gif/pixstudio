@@ -15,11 +15,24 @@ const SessionIdParamsSchema = z.object({
 	sessionId: z.string().uuid(),
 });
 
-const CreateSessionBodySchema = z.object({
-	workspaceId: z.string().uuid(),
-	prompt: z.string().max(25_000).default(""),
-	mode: z.enum(["pathA", "pathB"]).default("pathA"),
-});
+const VIDEO_URL_PATTERN =
+	/^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/watch\?|youtu\.be\/|tiktok\.com\/|instagram\.com\/(?:reel|p)\/|vimeo\.com\/)/i;
+
+const CreateSessionBodySchema = z
+	.object({
+		workspaceId: z.string().uuid(),
+		prompt: z.string().max(25_000).default(""),
+		mode: z.enum(["pathA", "pathB"]).default("pathA"),
+		/** Required when mode=pathB. YouTube / TikTok / Reel / Vimeo URL. */
+		pathBVideoUrl: z
+			.string()
+			.regex(VIDEO_URL_PATTERN, "URL must be YouTube / TikTok / Instagram Reel / Vimeo")
+			.optional(),
+	})
+	.refine(
+		(body) => body.mode !== "pathB" || (body.pathBVideoUrl && body.pathBVideoUrl.length > 0),
+		{ message: "pathBVideoUrl required when mode=pathB", path: ["pathBVideoUrl"] },
+	);
 
 const UpdateConfigBodySchema = z.object({
 	workflowId: z.string().min(1),
@@ -138,8 +151,38 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 					mode: req.body.mode === "pathA" ? "PATH_A" : "PATH_B",
 				},
 			})) as SessionRow;
+
+			// Path B reverse engineer scaffold: create job row keyed to session.
+			// Pipeline (yt-dlp + FFmpeg + PySceneDetect + Demucs + Whisper + Gemini)
+			// runs Sprint 10 — for now we capture the URL so the job is queued.
+			let pathBJobId: string | null = null;
+			if (req.body.mode === "pathB" && req.body.pathBVideoUrl) {
+				try {
+					const job = await app.prisma.reverseEngineerJob.create({
+						data: {
+							sessionId: session.id,
+							userId: user.id,
+							workspaceId: req.body.workspaceId,
+							sourceUrl: req.body.pathBVideoUrl,
+							status: "PENDING",
+						},
+					});
+					pathBJobId = job.id;
+					req.log.info(
+						{ sessionId: session.id, jobId: job.id, sourceUrl: req.body.pathBVideoUrl },
+						"path-b reverse-engineer job queued (pipeline pending Sprint 10)",
+					);
+				} catch (err) {
+					req.log.error({ err }, "failed to create reverse-engineer job");
+				}
+			}
+
 			reply.status(201);
-			return serializeSession(session);
+			return {
+				...serializeSession(session),
+				pathBVideoUrl: req.body.pathBVideoUrl ?? null,
+				pathBJobId,
+			};
 		},
 	});
 
