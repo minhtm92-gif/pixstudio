@@ -169,18 +169,66 @@ export async function ingestCrossianDocs(
 }
 
 /**
- * Sprint 6 polish: pgvector similarity search.
- * v1: simple full-text LIKE matching across sanitized content.
+ * Generate embedding via Gemini text-embedding-004 (768-dim).
+ */
+async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
+	if (!apiKey) return null;
+	const truncated = text.slice(0, 8000);
+	const resp = await fetch(
+		`https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				model: "models/text-embedding-004",
+				content: { parts: [{ text: truncated }] },
+				taskType: "RETRIEVAL_DOCUMENT",
+			}),
+		},
+	);
+	if (!resp.ok) return null;
+	const json = (await resp.json()) as { embedding?: { values?: number[] } };
+	return json.embedding?.values ?? null;
+}
+
+/**
+ * Sprint 36: pgvector cosine similarity search via Gemini embedding.
+ * Falls back to LIKE matching if Gemini API unavailable or no embeddings yet.
  */
 export async function searchCrossianContext(
 	prisma: PrismaClient,
 	query: string,
 	limit: number = 3,
-): Promise<Array<{ source: string; content: string; contentType: string }>> {
-	// Sprint 6 polish: replace with pgvector cosine similarity:
-	// SELECT * FROM rag_documents
-	// ORDER BY embedding <=> $queryEmbedding
-	// LIMIT $limit;
+	geminiApiKey?: string,
+): Promise<Array<{ source: string; content: string; contentType: string; similarity?: number }>> {
+	if (geminiApiKey) {
+		try {
+			const embedding = await generateEmbedding(query, geminiApiKey);
+			if (embedding && embedding.length > 0) {
+				const vectorLiteral = `[${embedding.join(",")}]`;
+				const rows = (await prisma.$queryRawUnsafe(
+					`SELECT source, content, "contentType", 1 - (embedding <=> $1::vector) AS similarity
+					 FROM rag_documents
+					 WHERE language = 'en' AND embedding IS NOT NULL
+					 ORDER BY embedding <=> $1::vector
+					 LIMIT $2`,
+					vectorLiteral,
+					limit,
+				)) as Array<{ source: string; content: string; contentType: string; similarity: number }>;
+				if (rows.length > 0) {
+					return rows.map((r) => ({
+						source: r.source,
+						content: r.content.slice(0, 2000),
+						contentType: r.contentType,
+						similarity: r.similarity,
+					}));
+				}
+			}
+		} catch (err) {
+			console.warn("[crossian-rag] pgvector failed, fallback LIKE:", err);
+		}
+	}
+
 	const docs = await prisma.ragDocument.findMany({
 		where: {
 			AND: [
@@ -198,7 +246,41 @@ export async function searchCrossianContext(
 
 	return docs.map((d) => ({
 		source: d.source,
-		content: d.content.slice(0, 2000), // cap context size for LLM injection
+		content: d.content.slice(0, 2000),
 		contentType: d.contentType,
 	}));
+}
+
+/**
+ * Backfill embeddings for existing RagDocument rows. Run once after seed.
+ */
+export async function backfillEmbeddings(
+	prisma: PrismaClient,
+	geminiApiKey: string,
+	batchSize: number = 50,
+): Promise<{ embedded: number; skipped: number }> {
+	const docsRaw = (await prisma.$queryRawUnsafe(
+		`SELECT id, content FROM rag_documents WHERE embedding IS NULL LIMIT $1`,
+		batchSize,
+	)) as Array<{ id: string; content: string }>;
+
+	let embedded = 0;
+	let skipped = 0;
+
+	for (const doc of docsRaw) {
+		const embedding = await generateEmbedding(doc.content, geminiApiKey);
+		if (!embedding) {
+			skipped++;
+			continue;
+		}
+		const vectorLiteral = `[${embedding.join(",")}]`;
+		await prisma.$executeRawUnsafe(
+			`UPDATE rag_documents SET embedding = $1::vector WHERE id = $2`,
+			vectorLiteral,
+			doc.id,
+		);
+		embedded++;
+	}
+
+	return { embedded, skipped };
 }
