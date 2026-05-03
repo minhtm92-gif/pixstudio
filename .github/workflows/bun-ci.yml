@@ -18,8 +18,12 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # PixStudio chỉ deploy Linux (Vercel + Fly.io). macOS/Windows kế thừa từ
+        # OpenCut upstream (multi-platform desktop targets) — không phù hợp scope
+        # PixStudio web-only. Re-enable nếu spin-off desktop client sau này.
+        os: [ubuntu-latest]
 
     env:
       DATABASE_URL: "postgresql://opencut:opencut@localhost:5432/opencut"
