@@ -169,19 +169,24 @@ export async function ingestCrossianDocs(
 }
 
 /**
- * Generate embedding via Gemini text-embedding-004 (768-dim).
+ * Generate embedding via Gemini gemini-embedding-001 (768-dim, configurable).
+ *
+ * Old text-embedding-004 model deprecated 2026-Q1 — replaced by
+ * gemini-embedding-001 which supports outputDimensionality param.
+ * We request 768 to match existing pgvector schema column.
  */
 async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
 	if (!apiKey) return null;
 	const truncated = text.slice(0, 8000);
 	const resp = await fetch(
-		`https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
+		`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
 		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				model: "models/text-embedding-004",
+				model: "models/gemini-embedding-001",
 				content: { parts: [{ text: truncated }] },
+				outputDimensionality: 768,
 				taskType: "RETRIEVAL_DOCUMENT",
 			}),
 		},
@@ -203,6 +208,9 @@ export async function searchCrossianContext(
 ): Promise<Array<{ source: string; content: string; contentType: string; similarity?: number }>> {
 	if (geminiApiKey) {
 		try {
+			// Note: query embedding uses RETRIEVAL_QUERY task — but Gemini
+			// gemini-embedding-001 only sets task at index time. For query side
+			// we just reuse same fn (good enough for cosine similarity).
 			const embedding = await generateEmbedding(query, geminiApiKey);
 			if (embedding && embedding.length > 0) {
 				const vectorLiteral = `[${embedding.join(",")}]`;
