@@ -33,6 +33,7 @@ interface WorkspaceRow {
 interface SessionResponse {
 	id: string;
 	pathBJobId?: string | null;
+	pathBVideoUrl?: string | null;
 }
 
 const VENDORS = [
@@ -172,10 +173,12 @@ export function DashboardView({ user }: DashboardViewProps) {
 					pathBVideoUrl: videoUrl.trim(),
 				}),
 			});
+			if (session.pathBJobId) {
+				router.push(`/path-b/${session.pathBJobId}`);
+				return;
+			}
 			setPathBInfo(
-				`✓ Em đã save link cho anh (session ${session.id.slice(0, 8)}). Path B reverse engineer pipeline ` +
-					`đang được build (Sprint 27+ — cần GPU droplet + FFmpeg/Whisper/Gemini visual). ` +
-					`Anh sẽ nhận notification khi pipeline ready.`,
+				`✓ Em đã save link cho anh (session ${session.id.slice(0, 8)}). Pipeline pending — anh check trong admin queue.`,
 			);
 			setVideoUrl("");
 		} catch (err) {
