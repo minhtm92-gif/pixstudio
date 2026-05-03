@@ -7,7 +7,7 @@
  */
 
 export const API_BASE =
-	process.env["NEXT_PUBLIC_API_URL"] ?? "https://pixstudio-api.fly.dev";
+	process.env.NEXT_PUBLIC_API_URL ?? "https://pixstudio-api.fly.dev";
 
 /**
  * Fetch wrapper that injects credentials: "include" + sets JSON Content-Type

@@ -54,7 +54,7 @@ export function AssetStudioView({ user }: AssetStudioViewProps) {
 	const [tab, setTab] = useState<Tab>("video");
 	const [source, setSource] = useState<SourceFilter>("all");
 	const [search, setSearch] = useState("");
-	const [realAssets, setRealAssets] = useState<AssetRow[]>([]);
+	const [_realAssets, setRealAssets] = useState<AssetRow[]>([]);
 	const [usingMock, setUsingMock] = useState(true);
 	const [loadError, setLoadError] = useState<string | null>(null);
 

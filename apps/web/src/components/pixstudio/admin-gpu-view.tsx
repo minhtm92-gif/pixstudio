@@ -56,6 +56,7 @@ export function AdminGpuView({ user }: AdminGpuViewProps) {
 		}
 	};
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh is stable closure; adding it would re-create interval every render
 	useEffect(() => {
 		void refresh();
 		const interval = setInterval(() => {
