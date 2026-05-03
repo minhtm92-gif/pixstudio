@@ -411,9 +411,139 @@ Return JSON ONLY: {"scenes":[{"id":"scene-1","script":"polished text"},...]}`;
 						app.log.warn({ sessionId, err }, "stage 4 compose failed");
 					}
 				}
+			} else if (stage.id === "RENDERING_PREVIEW" && current?.outlineJson && app.r2) {
+				// === Stage 5: REAL — FFmpeg render preview MP4 720p ===
+				// CPU mode (no GPU). For 30-60s output, takes 60-180s on shared-cpu-2x.
+				// Output: 720x1280 9:16 portrait or 1280x720 16:9 — match workflow ratio.
+				const outline = current.outlineJson as {
+					editorState?: {
+						totalDurationSec?: number;
+						tracks?: Array<{ kind: string; segments?: Array<{ r2Key?: string | null; durationSec?: number; text?: string; startSec?: number }> }>;
+					};
+				} | null;
+				const editorState = outline?.editorState;
+				if (editorState?.tracks && editorState.tracks.length > 0) {
+					try {
+						const { spawn } = await import("node:child_process");
+						const { mkdir, readFile, rm, writeFile } = await import("node:fs/promises");
+						const { join } = await import("node:path");
+						const { tmpdir } = await import("node:os");
+						const { GetObjectCommand, PutObjectCommand } = await import("@aws-sdk/client-s3");
+
+						const workDir = join(tmpdir(), `render-${sessionId}`);
+						await mkdir(workDir, { recursive: true });
+
+						try {
+							// Download all TTS audio segments
+							const audioTrack = editorState.tracks.find((t) => t.kind === "audio");
+							const audioPaths: string[] = [];
+							for (const seg of audioTrack?.segments ?? []) {
+								if (!seg.r2Key) continue;
+								const obj = await app.r2!.send(
+									new GetObjectCommand({
+										Bucket: app.r2Buckets.uploads,
+										Key: seg.r2Key,
+									}),
+								);
+								const buf = Buffer.from(await obj.Body!.transformToByteArray());
+								const path = join(workDir, `audio-${audioPaths.length}.mp3`);
+								await writeFile(path, buf);
+								audioPaths.push(path);
+							}
+
+							// Concat audio segments via FFmpeg concat demuxer
+							let concatAudio = "";
+							if (audioPaths.length > 0) {
+								const listPath = join(workDir, "audio-list.txt");
+								await writeFile(listPath, audioPaths.map((p) => `file '${p}'`).join("\n"));
+								concatAudio = join(workDir, "audio-concat.mp3");
+								await new Promise((resolve, reject) => {
+									const proc = spawn("ffmpeg", [
+										"-f", "concat", "-safe", "0", "-i", listPath,
+										"-c", "copy", "-y", concatAudio,
+									]);
+									proc.on("close", (c) => (c === 0 ? resolve(undefined) : reject(new Error(`ffmpeg concat exit ${c}`))));
+									proc.on("error", reject);
+								});
+							}
+
+							// Generate solid-color placeholder video matching duration
+							// Real stock fill comes from stage 3 once vendor download integrated.
+							const totalSec = Math.max(15, editorState.totalDurationSec ?? 30);
+							const outputPath = join(workDir, "preview.mp4");
+							const subtitleTrack = editorState.tracks.find((t) => t.kind === "subtitle");
+							const subtitleSegs = subtitleTrack?.segments ?? [];
+
+							// Build subtitles via drawtext filter chain (limited 3 segments to keep cmd manageable)
+							const drawtextFilters = subtitleSegs.slice(0, 3).map((seg, i) => {
+								const text = (seg.text ?? "").replace(/[':\\,]/g, "").slice(0, 60);
+								const start = seg.startSec ?? 0;
+								const end = start + (seg.durationSec ?? 0);
+								return `drawtext=text='${text}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=h-150:enable='between(t,${start},${end})':box=1:boxcolor=black@0.5:boxborderw=8`;
+							}).join(",");
+
+							const ffmpegArgs = [
+								"-f", "lavfi", "-i", `color=c=black:s=720x1280:d=${totalSec}:r=30`,
+								...(concatAudio ? ["-i", concatAudio] : []),
+								"-vf", drawtextFilters || "null",
+								"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+								...(concatAudio ? ["-c:a", "aac", "-shortest"] : []),
+								"-y", outputPath,
+							];
+
+							await new Promise((resolve, reject) => {
+								const proc = spawn("ffmpeg", ffmpegArgs);
+								let stderr = "";
+								proc.stderr.on("data", (d) => { stderr += d.toString(); });
+								const timer = setTimeout(() => {
+									proc.kill("SIGKILL");
+									reject(new Error("ffmpeg render timeout 5min"));
+								}, 5 * 60 * 1000);
+								proc.on("close", (c) => {
+									clearTimeout(timer);
+									if (c === 0) resolve(undefined);
+									else reject(new Error(`ffmpeg exit ${c}: ${stderr.slice(-300)}`));
+								});
+								proc.on("error", reject);
+							});
+
+							const videoBuf = await readFile(outputPath);
+							const renderR2Key = `renders/${sessionId}/preview-720p.mp4`;
+							await app.r2!.send(
+								new PutObjectCommand({
+									Bucket: app.r2Buckets.renders,
+									Key: renderR2Key,
+									Body: videoBuf,
+									ContentType: "video/mp4",
+								}),
+							);
+
+							await app.prisma.quickCreateSession.update({
+								where: { id: sessionId },
+								data: {
+									outlineJson: {
+										...outline,
+										editorState: {
+											...editorState,
+											previewRenderR2Key: renderR2Key,
+											previewRenderedAt: new Date().toISOString(),
+										},
+									} as never,
+								},
+							});
+							app.log.info(
+								{ sessionId, renderR2Key, sizeBytes: videoBuf.length, totalSec },
+								"stage 5 FFmpeg render complete",
+							);
+						} finally {
+							await rm(workDir, { recursive: true, force: true }).catch(() => {});
+						}
+					} catch (err) {
+						app.log.warn({ sessionId, err: String(err) }, "stage 5 render failed");
+					}
+				}
 			} else {
-				// Stage 5 (RENDERING_PREVIEW) still mock — needs FFmpeg compositor binary
-				// + R2 video upload pipeline. That's Sprint 24+.
+				// Default fallback if stage doesn't match (shouldn't happen)
 				await new Promise((r) => setTimeout(r, 1500));
 			}
 
