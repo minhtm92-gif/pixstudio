@@ -248,59 +248,53 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 				},
 			});
 
-			return { projectId: project.id, editorUrl: `/editor/${project.id}` };
+			// Route to Quick Create Editor (3-tab View 6 per SCOPE §13), not OpenCut
+			// Pro Workspace. Path B uses "path-b" as workflowId pseudo-token.
+			return {
+				projectId: project.id,
+				editorUrl: `/quick-create/workflows/path-b/editor?projectId=${project.id}`,
+			};
 		},
 	});
 };
 
 function buildEditorStateFromExtraction(ext: PathBExtraction) {
 	const totalDuration = ext.scenes.reduce((s, sc) => s + sc.durationSec, 0);
+
+	// Map transcript segments to scenes by overlapping time range. Each scene
+	// gets the joined text of transcript segments that overlap its [startSec, endSec].
+	const scenes = ext.scenes.map((sc, idx) => {
+		const overlapping = ext.transcript.filter(
+			(t) => t.start < sc.endSec && t.end > sc.startSec,
+		);
+		const script = overlapping.map((t) => t.text).join(" ").trim();
+		const visual = ext.visualAnalysis.find((v) => v.sceneId === sc.id);
+		return {
+			id: sc.id,
+			order: idx + 1,
+			startSec: sc.startSec,
+			durationSec: sc.durationSec,
+			script,
+			mediaQuery: visual?.description ?? "",
+			mood: visual?.mood ?? null,
+			objects: visual?.objects ?? [],
+			sourceTrim: { fromSec: sc.startSec, toSec: sc.endSec },
+		};
+	});
+
 	return {
 		version: 1,
 		title: "Reverse engineered from reference",
-		totalDurationSec: totalDuration,
+		duration: totalDuration,
 		sourceVideoR2Key: ext.videoR2Key,
-		tracks: [
-			{
-				id: "video-1",
-				kind: "video",
-				segments: ext.scenes.map((sc) => {
-					const visual = ext.visualAnalysis.find((v) => v.sceneId === sc.id);
-					return {
-						id: `seg-video-${sc.id}`,
-						sceneId: sc.id,
-						startSec: sc.startSec,
-						durationSec: sc.durationSec,
-						sourceTrim: { fromSec: sc.startSec, toSec: sc.endSec },
-						visualHint: visual ?? null,
-					};
-				}),
+		timeline: {
+			scenes,
+			audio: {
+				r2Key: ext.audioR2Key,
+				stems: ext.stems ?? null,
 			},
-			{
-				id: "audio-source",
-				kind: "audio",
-				segments: [
-					{
-						id: "seg-audio-source",
-						startSec: 0,
-						durationSec: totalDuration,
-						r2Key: ext.audioR2Key,
-						stems: ext.stems ?? null,
-					},
-				],
-			},
-			{
-				id: "subtitle-1",
-				kind: "subtitle",
-				segments: ext.transcript.map((seg, i) => ({
-					id: `seg-sub-${i}`,
-					startSec: seg.start,
-					durationSec: Math.max(0, seg.end - seg.start),
-					text: seg.text,
-					style: { font: "Bebas Neue", size: 64, color: "#FFFFFF", strokeColor: "#000000", strokeWidth: 4 },
-				})),
-			},
-		],
+			duration: totalDuration,
+		},
 		extractionMeta: {
 			sceneCount: ext.scenes.length,
 			transcriptSegments: ext.transcript.length,

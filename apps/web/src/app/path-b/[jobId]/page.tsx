@@ -4,7 +4,7 @@
  * After Home Path B submit creates ReverseEngineerJob, redirect users here
  * to track extraction progress. Polls /api/path-b/jobs/:id every 3s.
  *
- * On COMPLETED → POST handoff → redirect /editor/[projectId]
+ * On COMPLETED → POST handoff → redirect Quick Create editor (3-tab View 6)
  * On FAILED → show error + retry button
  */
 
@@ -53,7 +53,7 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 	PENDING: "Đang chờ xử lý...",
 	DOWNLOADING: "Đang tải video tham khảo (yt-dlp)",
 	EXTRACTING_AUDIO: "Đang tách audio (FFmpeg)",
-	DETECTING_SCENES: "Đang phát hiện phân cảnh (PySceneDetect)",
+	DETECTING_SCENES: "Đang phát hiện phân cảnh (FFmpeg)",
 	SEPARATING_STEMS: "Đang tách stem nhạc (Demucs)",
 	TRANSCRIBING: "Đang transcribe lời thoại (ElevenLabs Scribe)",
 	IDENTIFYING_MUSIC: "Đang nhận diện nhạc nền (Chromaprint)",
@@ -201,7 +201,7 @@ export default function PathBJobStatusPage() {
 								disabled={handoffing}
 								className="mt-4 flex items-center gap-2 rounded-md bg-[#3B82F6] px-5 py-2.5 text-sm font-medium text-white hover:bg-[#3B82F6]/90 disabled:opacity-50"
 							>
-								{handoffing ? "Đang mở editor..." : "Mở trong Editor"}
+								{handoffing ? "Đang mở Quick Create Editor..." : "Mở Quick Create Editor"}
 								<ArrowRight className="h-4 w-4" />
 							</button>
 						)}
