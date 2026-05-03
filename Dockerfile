@@ -10,7 +10,10 @@ COPY apps/web/package.json ./apps/web/
 COPY packages/ai-services/package.json ./packages/ai-services/
 COPY packages/brand/package.json ./packages/brand/
 COPY packages/quick-create/package.json ./packages/quick-create/
-RUN bun install --frozen-lockfile
+# --ignore-scripts: skip workspace postinstall hooks (apps/api postinstall
+# runs `prisma generate`, but prisma/schema.prisma isn't COPYed yet at deps
+# stage). Build stage runs `prisma generate` explicitly after full COPY.
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # Stage 2: Build (prisma generate)
 FROM base AS build
