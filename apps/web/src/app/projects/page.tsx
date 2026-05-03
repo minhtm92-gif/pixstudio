@@ -67,6 +67,15 @@ import { ProjectInfoDialog } from "@/project/components/project-info-dialog";
 import { RenameProjectDialog } from "@/project/components/rename-project-dialog";
 import { cn } from "@/utils/ui";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
+import { Sidebar } from "@/components/pixstudio/sidebar";
+import type { PixStudioUser } from "@/lib/api-client";
+
+const PIXSTUDIO_STUB_USER: PixStudioUser = {
+	name: "Demo",
+	tier: "PRO",
+	buildsUsed: 0,
+	buildsLimit: 50,
+};
 const formatProjectDuration = ({
 	duration,
 }: {
@@ -104,35 +113,38 @@ export default function ProjectsPage() {
 	}, [editor.project]);
 
 	return (
-		<div className="bg-background min-h-screen">
-			<MigrationDialog />
-			<StoragePersistenceDialog />
-			<ChangelogNotification />
-			<ProjectsHeader />
-			<ProjectsToolbar projectIds={projectsToDisplay.map((p) => p.id)} />
-			<main className="mx-auto px-4 pt-2 pb-6 flex flex-col gap-4">
-				{isLoading || !isInitialized ? (
-					<ProjectsSkeleton />
-				) : projectsToDisplay.length === 0 ? (
-					<EmptyState />
-				) : (
-					<div
-						className={
-							viewMode === "grid"
-								? "xs:grid-cols-2 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4 px-4"
-								: "flex flex-col"
-						}
-					>
-						{projectsToDisplay.map((project) => (
-							<ProjectItem
-								key={project.id}
-								project={project}
-								allProjectIds={projectsToDisplay.map((p) => p.id)}
-							/>
-						))}
-					</div>
-				)}
-			</main>
+		<div className="flex bg-background min-h-screen">
+			<Sidebar user={PIXSTUDIO_STUB_USER} />
+			<div className="flex-1 min-w-0">
+				<MigrationDialog />
+				<StoragePersistenceDialog />
+				<ChangelogNotification />
+				<ProjectsHeader />
+				<ProjectsToolbar projectIds={projectsToDisplay.map((p) => p.id)} />
+				<main className="mx-auto px-4 pt-2 pb-6 flex flex-col gap-4">
+					{isLoading || !isInitialized ? (
+						<ProjectsSkeleton />
+					) : projectsToDisplay.length === 0 ? (
+						<EmptyState />
+					) : (
+						<div
+							className={
+								viewMode === "grid"
+									? "xs:grid-cols-2 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4 px-4"
+									: "flex flex-col"
+							}
+						>
+							{projectsToDisplay.map((project) => (
+								<ProjectItem
+									key={project.id}
+									project={project}
+									allProjectIds={projectsToDisplay.map((p) => p.id)}
+								/>
+							))}
+						</div>
+					)}
+				</main>
+			</div>
 		</div>
 	);
 }
