@@ -123,7 +123,7 @@ async function processBuildJob(
 	app: FastifyInstance,
 	job: Job<QuickCreateBuildJobData, QuickCreateBuildJobReturn>,
 ): Promise<QuickCreateBuildJobReturn> {
-	const { sessionId } = job.data;
+	const { sessionId, userId, workspaceId } = job.data;
 
 	const stages = [
 		{ id: "GENERATING_SCRIPT", weight: 10 },
@@ -135,14 +135,13 @@ async function processBuildJob(
 
 	let cumulativeProgress = 0;
 	const startedAt = Date.now();
+	let totalCostUsd = 0;
 
 	try {
 		for (const stage of stages) {
-			// Codex P1 #3: defence in depth — abort if user cancelled even when job
-			// stayed in BullMQ (e.g. transient Redis error during DELETE handler).
 			const current = await app.prisma.quickCreateSession.findUnique({
 				where: { id: sessionId },
-				select: { buildStatus: true },
+				select: { buildStatus: true, outlineJson: true, prompt: true },
 			});
 			if (current?.buildStatus === "CANCELLED") {
 				throw new BuildCancelledError(sessionId);
@@ -156,9 +155,79 @@ async function processBuildJob(
 				},
 			});
 
-			// TODO Sprint 3-4: replace with real stage handlers (LLM script polish,
-			// ElevenLabs TTS, stock match, compositor JSON build, MP4 render).
-			await new Promise((r) => setTimeout(r, 1500)); // simulate stage work
+			// === Stage 1: REAL — polish outline scenes via LLM ===
+			if (stage.id === "GENERATING_SCRIPT" && current?.outlineJson && app.aiRouter) {
+				const outline = current.outlineJson as {
+					scenes?: Array<{ id: string; script: string; order: number }>;
+				} | null;
+				if (outline?.scenes && outline.scenes.length > 0) {
+					try {
+						const polishPrompt = `You are a TTS-friendly script polisher for Vietnamese video ads.
+
+Original scenes:
+${outline.scenes.map((s) => `Scene ${s.order}: ${s.script}`).join("\n")}
+
+Task: rewrite each scene script to be:
+1. Voice-friendly (avoid abbreviations, expand numbers like "30%" → "ba mươi phần trăm")
+2. Natural Vietnamese spoken cadence (not written formal)
+3. Same length ±10% (don't significantly shorten or lengthen)
+4. Keep all keywords + product names intact
+
+Return JSON ONLY: {"scenes":[{"id":"scene-1","script":"polished text"},...]}`;
+
+						const { result } = await app.aiRouter.invoke(
+							"llm.chat" as never,
+							{
+								prompt: polishPrompt,
+								maxTokens: 1500,
+								temperature: 0.4,
+								responseFormat: "json_object",
+							} as never,
+							{ tier: "pro", workspaceId, userId } as never,
+						);
+						const text = (result as { text?: string }).text ?? "";
+						const cost = (result as { costUsd?: number }).costUsd ?? 0;
+						totalCostUsd += cost;
+						const jsonStart = text.indexOf("{");
+						const jsonEnd = text.lastIndexOf("}");
+						if (jsonStart !== -1 && jsonEnd !== -1) {
+							const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1)) as {
+								scenes?: Array<{ id: string; script: string }>;
+							};
+							if (parsed.scenes) {
+								// Merge polished scripts back into outline (preserve other fields).
+								const polishedById = new Map(
+									parsed.scenes.map((s) => [s.id, s.script]),
+								);
+								const updatedOutline = {
+									...outline,
+									scenes: outline.scenes.map((s) => ({
+										...s,
+										script: polishedById.get(s.id) ?? s.script,
+									})),
+								};
+								await app.prisma.quickCreateSession.update({
+									where: { id: sessionId },
+									data: { outlineJson: updatedOutline as never },
+								});
+								app.log.info(
+									{ sessionId, costUsd: cost, scenes: parsed.scenes.length },
+									"stage 1 LLM script polish complete",
+								);
+							}
+						}
+					} catch (err) {
+						app.log.warn(
+							{ sessionId, err },
+							"stage 1 LLM polish failed — using original scripts",
+						);
+					}
+				}
+			} else {
+				// Stages 2-5 still mock — full real implementation Sprint 11+
+				// (ElevenLabs TTS quotas + stock vendor APIs + FFmpeg pipeline = full sprints)
+				await new Promise((r) => setTimeout(r, 1500));
+			}
 
 			cumulativeProgress += stage.weight;
 			await job.updateProgress(cumulativeProgress);
@@ -166,19 +235,19 @@ async function processBuildJob(
 
 		const totalDurationMs = Date.now() - startedAt;
 
-		// Sprint 4: create real Project row from outline + assets. Mock for now.
 		await app.prisma.quickCreateSession.update({
 			where: { id: sessionId },
 			data: {
 				buildStatus: "COMPLETED" as never,
 				buildProgress: 100,
 				completedAt: new Date(),
+				totalCostUsd: totalCostUsd as never,
 			},
 		});
 
 		return {
 			projectId: `mock-project-${sessionId}`,
-			totalCostUsd: 0.05,
+			totalCostUsd,
 			totalDurationMs,
 		};
 	} catch (err) {
