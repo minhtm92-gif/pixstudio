@@ -94,12 +94,12 @@ const AI_TOOLS = [
 	{ name: "Brand Kit", icon: <ImageIcon className="h-5 w-5" />, desc: "Logo · fonts · colors · intro/outro template" },
 ];
 
-const FEATURED_CHIPS = [
-	"📝 Edit project mới",
-	"⚡ Quick Create",
-	"📚 Browse Templates",
-	"🎬 Tạo video Tết",
-	"👤 Tạo Character",
+const FEATURED_CHIPS: Array<{ label: string; href: string }> = [
+	{ label: "📝 Edit project mới", href: "/projects" },
+	{ label: "⚡ Quick Create", href: "/quick-create" },
+	{ label: "📚 Browse Templates", href: "/quick-create/workflows" },
+	{ label: "🎬 Tạo video Tết", href: "/quick-create?prompt=Video+T%E1%BA%BFt+9%3A16+30s+m%C3%A0u+%C4%91%E1%BB%8F+v%C3%A0ng+truy%E1%BB%81n+th%E1%BB%91ng" },
+	{ label: "👤 Tạo Character", href: "/assets" },
 ];
 
 interface DashboardViewProps {
@@ -131,13 +131,22 @@ export function DashboardView({ user }: DashboardViewProps) {
 			<main className="flex flex-1 flex-col overflow-x-hidden">
 				{/* Top bar */}
 				<div className="flex items-center justify-end gap-3 px-7 py-3.5">
-					<button className="rounded-md bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white/87 hover:bg-zinc-700">
+					<button
+						type="button"
+						onClick={() => router.push("/account")}
+						className="rounded-md bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white/87 hover:bg-zinc-700"
+					>
 						⚡ Tăng tier
 					</button>
 					{user && (
-						<div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-red-500 text-xs font-semibold text-white">
+						<button
+							type="button"
+							onClick={() => router.push("/account")}
+							className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-red-500 text-xs font-semibold text-white hover:opacity-90"
+							title={`${user.name} (${user.tier} tier) — Account settings`}
+						>
 							{user.name[0]?.toUpperCase()}
-						</div>
+						</button>
 					)}
 				</div>
 
@@ -217,10 +226,12 @@ export function DashboardView({ user }: DashboardViewProps) {
 						<span className="mr-1 text-xs text-white/50">Đề xuất</span>
 						{FEATURED_CHIPS.map((chip) => (
 							<button
-								key={chip}
+								key={chip.href}
+								type="button"
+								onClick={() => router.push(chip.href)}
 								className="rounded-full border border-white/10 bg-zinc-900 px-3 py-1.5 text-xs text-white/87 hover:border-white/25 hover:bg-zinc-800"
 							>
-								{chip}
+								{chip.label}
 							</button>
 						))}
 					</div>

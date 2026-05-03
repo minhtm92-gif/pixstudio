@@ -92,7 +92,11 @@ export function Sidebar({ user }: SidebarProps) {
 								</div>
 							)}
 						</div>
-						<div className="mt-2 flex cursor-pointer items-center gap-2.5 rounded p-2 hover:bg-white/5">
+						<Link
+							href="/account"
+							className="mt-2 flex cursor-pointer items-center gap-2.5 rounded p-2 hover:bg-white/5"
+							title="Mở Account settings"
+						>
 							<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-red-500 text-xs font-semibold text-white">
 								{user.name[0]?.toUpperCase()}
 							</div>
@@ -102,8 +106,8 @@ export function Sidebar({ user }: SidebarProps) {
 								</div>
 								<div className={`text-[10px] ${tierColor}`}>{user.tier} tier</div>
 							</div>
-							<Settings className="h-4 w-4 text-muted-foreground hover:text-white" />
-						</div>
+							<Settings className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-white" />
+						</Link>
 					</>
 				)}
 			</div>

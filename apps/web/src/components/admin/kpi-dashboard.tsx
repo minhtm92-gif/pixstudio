@@ -84,8 +84,22 @@ export function KpiDashboard() {
 		return () => clearInterval(interval);
 	}, []);
 
+	if (error) {
+		const isAuthErr = error.includes("401") || error.includes("403") || error.toLowerCase().includes("admin");
+		return (
+			<div className="rounded-md border border-orange-500/30 bg-orange-500/10 p-6 text-sm">
+				<div className="mb-2 font-medium text-orange-300">
+					{isAuthErr ? "Admin role required" : "Failed to load KPIs"}
+				</div>
+				<div className="text-orange-200/80">
+					{isAuthErr
+						? "Trang này chỉ dành cho user có systemRole=ADMIN. Anh login với account ADMIN qua /login."
+						: error}
+				</div>
+			</div>
+		);
+	}
 	if (loading && !migration) return <div className="text-sm text-muted-foreground">Loading KPIs...</div>;
-	if (error) return <div className="rounded-md bg-destructive/10 p-4 text-destructive">{error}</div>;
 
 	return (
 		<div className="space-y-6">
