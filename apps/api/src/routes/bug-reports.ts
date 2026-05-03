@@ -13,6 +13,8 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireUser, requireAdmin } from "../plugins/require-auth.js";
 
 const BugSeveritySchema = z.enum(["P0", "P1", "P2", "P3"]);
@@ -86,6 +88,39 @@ export const bugReportsRoutes: FastifyPluginAsyncZod = async (app) => {
 
 			reply.code(201);
 			return serialize(bug);
+		},
+	});
+
+	// === POST /api/bug-reports/screenshot-presign ===
+	// Presigned R2 PUT URL for bug screenshot upload (client uploads direct to R2,
+	// then submits screenshotR2Key in main bug body).
+	app.post("/screenshot-presign", {
+		schema: {
+			body: z.object({
+				mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+				sizeBytes: z.number().int().positive().max(2 * 1024 * 1024),
+			}),
+		},
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			if (!app.r2) {
+				reply.code(503);
+				return { error: "R2 not configured" };
+			}
+			const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" }[req.body.mimeType];
+			const r2Key = `bug-reports/${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+			const command = new PutObjectCommand({
+				Bucket: app.r2Buckets.uploads,
+				Key: r2Key,
+				ContentType: req.body.mimeType,
+				ContentLength: req.body.sizeBytes,
+			});
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const presignedUrl = await getSignedUrl(app.r2 as any, command as any, {
+				expiresIn: 600,
+			});
+			return { presignedUrl, r2Key, expiresInSec: 600 };
 		},
 	});
 

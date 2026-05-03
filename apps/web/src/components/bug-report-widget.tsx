@@ -9,8 +9,8 @@
 
 "use client";
 
-import { useState } from "react";
-import { Bug, X, AlertTriangle, AlertCircle, Info, CheckCircle2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Bug, X, AlertTriangle, AlertCircle, Info, CheckCircle2, ImagePlus } from "lucide-react";
 import { useBugReport, type BugSeverity } from "../hooks/use-bug-report";
 
 const SEVERITY_OPTIONS: Array<{
@@ -55,12 +55,39 @@ export function BugReportWidget() {
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
 	const [severity, setSeverity] = useState<BugSeverity>("P2");
+	const [screenshot, setScreenshot] = useState<File | null>(null);
+	const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
 	const { submit, reset, state, error, bugId } = useBugReport();
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!title.trim() || !description.trim()) return;
-		await submit({ title: title.trim(), description: description.trim(), severity });
+		await submit({
+			title: title.trim(),
+			description: description.trim(),
+			severity,
+			...(screenshot ? { screenshot } : {}),
+		});
+	};
+
+	const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		if (file.size > 2 * 1024 * 1024) {
+			alert("Screenshot quá lớn (max 2MB)");
+			return;
+		}
+		setScreenshot(file);
+		const reader = new FileReader();
+		reader.onload = (ev) => setScreenshotPreview(ev.target?.result as string);
+		reader.readAsDataURL(file);
+	};
+
+	const removeScreenshot = () => {
+		setScreenshot(null);
+		setScreenshotPreview(null);
+		if (fileInputRef.current) fileInputRef.current.value = "";
 	};
 
 	const close = () => {
@@ -69,6 +96,7 @@ export function BugReportWidget() {
 			setTitle("");
 			setDescription("");
 			setSeverity("P2");
+			removeScreenshot();
 			reset();
 		}, 300);
 	};
@@ -181,6 +209,47 @@ export function BugReportWidget() {
 							<div className="mt-1 text-[10px] text-muted-foreground">
 								{description.length} / 5000 chars
 							</div>
+						</div>
+
+						{/* Screenshot upload */}
+						<div>
+							<label className="mb-1 block text-xs font-medium uppercase text-muted-foreground">
+								Screenshot (optional, max 2MB)
+							</label>
+							{screenshotPreview ? (
+								<div className="relative inline-block">
+									{/* eslint-disable-next-line @next/next/no-img-element */}
+									<img
+										src={screenshotPreview}
+										alt="Screenshot preview"
+										className="max-h-32 rounded-md border"
+									/>
+									<button
+										type="button"
+										onClick={removeScreenshot}
+										className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600"
+										aria-label="Remove screenshot"
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+							) : (
+								<button
+									type="button"
+									onClick={() => fileInputRef.current?.click()}
+									className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50"
+								>
+									<ImagePlus className="h-4 w-4" />
+									Add screenshot
+								</button>
+							)}
+							<input
+								ref={fileInputRef}
+								type="file"
+								accept="image/png,image/jpeg,image/webp"
+								onChange={handleScreenshotChange}
+								className="hidden"
+							/>
 						</div>
 
 						{/* Auto-captured info */}

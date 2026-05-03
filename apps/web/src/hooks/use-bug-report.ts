@@ -19,6 +19,47 @@ export interface BugSubmitInput {
 	severity?: BugSeverity;
 	workspaceId?: string;
 	projectId?: string;
+	/** Optional File from <input type="file" accept="image/*"> */
+	screenshot?: File;
+}
+
+interface PresignResponse {
+	presignedUrl: string;
+	r2Key: string;
+}
+
+/**
+ * Upload screenshot to R2 via presigned PUT URL.
+ * Reuses the brand-kit logo presign endpoint pattern.
+ */
+async function uploadScreenshot(file: File): Promise<string | null> {
+	if (file.size > 2 * 1024 * 1024) {
+		throw new Error("Screenshot quá lớn (max 2MB)");
+	}
+	if (!file.type.startsWith("image/")) {
+		throw new Error("File phải là image (PNG/JPEG/WebP)");
+	}
+	try {
+		const presign = await apiFetch<PresignResponse>("/api/bug-reports/screenshot-presign", {
+			method: "POST",
+			body: JSON.stringify({
+				mimeType: file.type,
+				sizeBytes: file.size,
+			}),
+		});
+		const putRes = await fetch(presign.presignedUrl, {
+			method: "PUT",
+			body: file,
+			headers: { "Content-Type": file.type },
+		});
+		if (!putRes.ok) {
+			throw new Error(`R2 upload failed: HTTP ${putRes.status}`);
+		}
+		return presign.r2Key;
+	} catch (err) {
+		console.warn("[useBugReport] screenshot upload failed", err);
+		return null;
+	}
 }
 
 export type SubmitState = "idle" | "submitting" | "success" | "error";
@@ -32,11 +73,18 @@ export function useBugReport() {
 		setState("submitting");
 		setError(null);
 		try {
+			let screenshotR2Key: string | null = null;
+			if (input.screenshot) {
+				screenshotR2Key = await uploadScreenshot(input.screenshot);
+			}
+			const { screenshot: _unused, ...rest } = input;
+			void _unused;
 			const body = {
-				...input,
+				...rest,
 				severity: input.severity ?? "P2",
 				pageUrl: typeof window !== "undefined" ? window.location.href : undefined,
 				userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+				...(screenshotR2Key ? { screenshotR2Key } : {}),
 			};
 			const json = await apiFetch<{ id: string }>("/api/bug-reports", {
 				method: "POST",
