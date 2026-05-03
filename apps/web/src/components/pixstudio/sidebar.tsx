@@ -21,6 +21,7 @@ import {
 	Bug,
 	HardDrive,
 	Cpu,
+	Mic,
 } from "lucide-react";
 import type { PixStudioUser } from "@/lib/api-client";
 
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
 
 const SETTINGS_NAV_ITEMS = [
 	{ href: "/settings/brand-kit", label: "Brand Kit", icon: <Palette className="h-4 w-4" /> },
+	{ href: "/settings/voices", label: "Voices", icon: <Mic className="h-4 w-4" /> },
 ];
 
 const ADMIN_NAV_ITEMS = [
