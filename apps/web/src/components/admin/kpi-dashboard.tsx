@@ -62,22 +62,30 @@ export function KpiDashboard() {
 			}
 			setLoading(true);
 			setError(null);
-			try {
-				const [m, c, f, h] = await Promise.all([
-					apiFetch<MigrationKpi>("/api/admin/kpi/migration?days=7"),
-					apiFetch<CostKpi>("/api/admin/kpi/cost?days=30"),
-					apiFetch<FunnelKpi>("/api/admin/kpi/build-funnel?days=7"),
-					apiFetch<SystemHealth>("/api/admin/kpi/system-health"),
-				]);
-				setMigration(m);
-				setCost(c);
-				setFunnel(f);
-				setHealth(h);
-			} catch (err) {
-				setError(err instanceof Error ? err.message : "Failed to load KPIs");
-			} finally {
-				setLoading(false);
+			// Use allSettled so one slow/hung endpoint doesn't block the rest.
+			// Each apiFetch has 10s timeout via AbortController inside api-client.
+			const results = await Promise.allSettled([
+				apiFetch<MigrationKpi>("/api/admin/kpi/migration?days=7"),
+				apiFetch<CostKpi>("/api/admin/kpi/cost?days=30"),
+				apiFetch<FunnelKpi>("/api/admin/kpi/build-funnel?days=7"),
+				apiFetch<SystemHealth>("/api/admin/kpi/system-health"),
+			]);
+			const [mRes, cRes, fRes, hRes] = results;
+			if (mRes.status === "fulfilled") setMigration(mRes.value);
+			if (cRes.status === "fulfilled") setCost(cRes.value);
+			if (fRes.status === "fulfilled") setFunnel(fRes.value);
+			if (hRes.status === "fulfilled") setHealth(hRes.value);
+			const firstErr = results.find((r) => r.status === "rejected") as
+				| PromiseRejectedResult
+				| undefined;
+			if (firstErr && results.every((r) => r.status === "rejected")) {
+				const msg = firstErr.reason instanceof Error
+					? firstErr.reason.message
+					: String(firstErr.reason);
+				console.error("[KPI dashboard] all 4 endpoints failed:", msg);
+				setError(msg);
 			}
+			setLoading(false);
 		};
 		void fetchAll();
 		const interval = setInterval(() => void fetchAll(), 30_000); // 30s refresh
