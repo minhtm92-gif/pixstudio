@@ -115,11 +115,12 @@ export function DashboardView({ user }: DashboardViewProps) {
 	const handleSubmit = () => {
 		if (!prompt.trim()) return;
 		if (mode === "quick") {
-			// Pre-fill Quick Create hero with prompt
-			router.push(`/quick-create?prompt=${encodeURIComponent(prompt)}`);
+			// Quick Create: textarea on Home IS the entry — go straight to workflow
+			// picker with prompt encoded. Per anh feedback: no duplicate hero on
+			// /quick-create page (that page now redirects to /).
+			router.push(`/quick-create/workflows?prompt=${encodeURIComponent(prompt)}`);
 		} else {
-			// Pro Workspace: nav to projects list (Sprint 9 wires real "create + open editor")
-			// The /projects page (OpenCut inherited) shows project list with create flow.
+			// Pro Workspace = projects list (OpenCut inherited /projects).
 			router.push(`/projects?prompt=${encodeURIComponent(prompt)}`);
 		}
 	};
