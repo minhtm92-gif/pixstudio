@@ -12,6 +12,56 @@ import { requireUser, requireAdmin } from "../plugins/require-auth.js";
 import { runPathBPipeline, type PathBExtraction } from "../services/path-b-pipeline.js";
 
 export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
+	// Admin: list all ReverseEngineerJobs for monitoring queue (no auth-by-owner)
+	app.get("/admin/jobs", {
+		schema: {
+			querystring: z.object({
+				limit: z.coerce.number().int().min(1).max(100).default(20),
+				status: z
+					.enum([
+						"PENDING",
+						"DOWNLOADING",
+						"EXTRACTING_AUDIO",
+						"DETECTING_SCENES",
+						"SEPARATING_STEMS",
+						"TRANSCRIBING",
+						"IDENTIFYING_MUSIC",
+						"ANALYZING_VISUAL",
+						"BUILDING_STATE",
+						"COMPLETED",
+						"FAILED",
+						"CANCELLED",
+					])
+					.optional(),
+			}),
+		},
+		handler: async (req, reply) => {
+			const user = await requireAdmin(app, req, reply);
+			if (!user) return;
+			const where: Record<string, unknown> = {};
+			if (req.query.status) where["status"] = req.query.status;
+			const jobs = await app.prisma.reverseEngineerJob.findMany({
+				where,
+				orderBy: { createdAt: "desc" },
+				take: req.query.limit,
+			});
+			return {
+				items: jobs.map((j) => ({
+					id: j.id,
+					sessionId: j.sessionId,
+					userId: j.userId,
+					status: j.status,
+					progress: j.progress,
+					sourceUrl: j.sourceUrl,
+					errorMessage: j.errorMessage,
+					totalCostUsd: Number(j.totalCostUsd),
+					createdAt: j.createdAt.toISOString(),
+					completedAt: j.completedAt?.toISOString() ?? null,
+				})),
+			};
+		},
+	});
+
 	app.get("/jobs/:id", {
 		schema: { params: z.object({ id: z.string().uuid() }) },
 		handler: async (req, reply) => {
