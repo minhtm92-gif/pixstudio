@@ -37,8 +37,28 @@ const app = Fastify({
 app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
+// CORS allowlist: env CORS_ORIGINS (comma-separated) OR built-in production
+// + dev defaults. Production URLs hardcoded as fallback so missing Doppler
+// env doesn't silently block studio.pixelxlab.com origin.
+const DEFAULT_CORS_ORIGINS = [
+  "https://studio.pixelxlab.com",
+  "https://pixstudio.vercel.app", // Vercel preview deployments
+  "http://localhost:3000",
+  "http://localhost:3001",
+];
+const corsAllowlist = apiEnv.CORS_ORIGINS
+  ? [...new Set([...apiEnv.CORS_ORIGINS.split(",").map((s) => s.trim()), ...DEFAULT_CORS_ORIGINS])]
+  : DEFAULT_CORS_ORIGINS;
+
 await app.register(cors, {
-  origin: apiEnv.CORS_ORIGINS?.split(",") ?? ["http://localhost:3000"],
+  origin: (origin, cb) => {
+    // No origin (same-origin / curl / mobile app) — allow.
+    if (!origin) return cb(null, true);
+    if (corsAllowlist.includes(origin)) return cb(null, true);
+    // Vercel preview deployments: pixstudio-git-<branch>-<hash>.vercel.app
+    if (/^https:\/\/pixstudio[a-z0-9-]*\.vercel\.app$/.test(origin)) return cb(null, true);
+    cb(new Error(`CORS: origin ${origin} not allowed`), false);
+  },
   credentials: true,
   maxAge: 86400, // 24h preflight cache (audit H5)
 });
