@@ -20,9 +20,8 @@ function editorTeamEmails(): string[] {
 	const env = process.env["EDITOR_TEAM_EMAILS"];
 	if (env) return env.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
 	return [
-		"minhtm92@pixelxlab.com",
-		"minhtq@pixelxlab.com",
-		"tung@pixelxlab.com",
+		"minhtq@pixelxlab.com", // anh Minh (CEO)
+		"tungv@pixelxlab.com",  // Tùng (Marketer Leader)
 	];
 }
 

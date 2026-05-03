@@ -6,8 +6,8 @@
  *   bun run apps/api/scripts/promote-admin.ts <email> --role MOD
  *
  * Examples:
- *   bun run apps/api/scripts/promote-admin.ts minhtm92@pixelxlab.com
- *   bun run apps/api/scripts/promote-admin.ts tung@pixelxlab.com --role MOD
+ *   bun run apps/api/scripts/promote-admin.ts minhtq@pixelxlab.com
+ *   bun run apps/api/scripts/promote-admin.ts tungv@pixelxlab.com --role MOD
  *
  * Required for Phase 1 success-gate measurement (Q57 + Q55):
  *   - anh + minhtq need ADMIN to access /admin/kpi, /admin/stock, /admin/gpu

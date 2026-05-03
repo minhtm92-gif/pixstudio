@@ -28,10 +28,22 @@ const authImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
     return;
   }
 
+  // trustedOrigins: better-auth has its own origin allowlist (separate from
+  // Fastify CORS). Without this, signup/login from studio.pixelxlab.com hits
+  // 403 INVALID_ORIGIN. Vercel preview branches auto-allowed via regex.
+  const TRUSTED_ORIGINS = [
+    "https://studio.pixelxlab.com",
+    "https://pixstudio.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    /^https:\/\/pixstudio[a-z0-9-]*\.vercel\.app$/,
+  ];
+
   const auth = betterAuth({
     database: prismaAdapter(prisma, { provider: "postgresql" }),
     secret: authSecret,
     baseURL: apiEnv.AUTH_BASE_URL ?? `http://${apiEnv.HOST}:${apiEnv.PORT}`,
+    trustedOrigins: TRUSTED_ORIGINS as never,
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false, // Phase 0 internal — Phase 3+ enable
