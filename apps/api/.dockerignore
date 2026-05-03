@@ -1,0 +1,46 @@
+# apps/api/.dockerignore — Fly Depot uses fly.toml directory as build context.
+# This is a fallback when flyctl runs from apps/api/. Mirrors repo root
+# .dockerignore for the apps/api context specifically.
+
+# Bun workspace node_modules are symlinks → tar 'unknown file mode ?rwxr-xr-x'
+node_modules
+**/node_modules
+.bun
+**/.bun
+
+# Build outputs
+.next
+**/.next
+.turbo
+**/.turbo
+dist
+**/dist
+build
+**/build
+out
+**/out
+
+# Git internals
+.git
+.gitignore
+.github
+
+# IDE / OS
+.cursor
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Test / coverage / logs
+coverage
+**/coverage
+*.log
+
+# Env files (use Fly secrets)
+.env*
+!.env.example
+
+# Docs
+*.md
+!README.md
