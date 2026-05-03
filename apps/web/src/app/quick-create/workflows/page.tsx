@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useState, useTransition } from "react";
+import { Suspense, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Crown, Lock, Sparkles, Loader2, AlertCircle } from "lucide-react";
@@ -155,6 +155,20 @@ interface SessionResponse {
 }
 
 export default function WorkflowsPage() {
+	return (
+		<Suspense
+			fallback={
+				<main className="flex min-h-screen items-center justify-center bg-background">
+					<Loader2 className="h-8 w-8 animate-spin text-primary" />
+				</main>
+			}
+		>
+			<WorkflowsPageContent />
+		</Suspense>
+	);
+}
+
+function WorkflowsPageContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const promptFromHero = searchParams.get("prompt") ?? "";
