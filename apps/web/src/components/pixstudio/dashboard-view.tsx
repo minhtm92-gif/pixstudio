@@ -14,12 +14,26 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Send, Sparkles, ChevronRight, Image as ImageIcon, Music, Layout, User as UserIcon } from "lucide-react";
+import { Plus, Send, Sparkles, ChevronRight, Image as ImageIcon, Music, Layout, User as UserIcon, Lightbulb, Video, Info } from "lucide-react";
 import { Sidebar } from "./sidebar";
-import type { PixStudioUser } from "@/lib/api-client";
+import { apiFetch, type PixStudioUser } from "@/lib/api-client";
 
 type Mode = "pro" | "quick";
+type QuickPath = "ideaA" | "videoB";
 type Section = "models" | "projects" | "trends" | "workflows" | "explore";
+
+const VIDEO_URL_PATTERN =
+	/^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/watch\?|youtu\.be\/|tiktok\.com\/|instagram\.com\/(?:reel|p)\/|vimeo\.com\/)/i;
+
+interface WorkspaceRow {
+	id: string;
+	name: string;
+}
+
+interface SessionResponse {
+	id: string;
+	pathBJobId?: string | null;
+}
 
 const VENDORS = [
 	{
@@ -109,19 +123,70 @@ interface DashboardViewProps {
 export function DashboardView({ user }: DashboardViewProps) {
 	const router = useRouter();
 	const [mode, setMode] = useState<Mode>("pro");
+	const [quickPath, setQuickPath] = useState<QuickPath>("ideaA");
 	const [section, setSection] = useState<Section>("models");
 	const [prompt, setPrompt] = useState("");
+	const [videoUrl, setVideoUrl] = useState("");
+	const [submitting, setSubmitting] = useState(false);
+	const [pathBInfo, setPathBInfo] = useState<string | null>(null);
+	const [pathBError, setPathBError] = useState<string | null>(null);
 
-	const handleSubmit = () => {
-		if (!prompt.trim()) return;
-		if (mode === "quick") {
-			// Quick Create: textarea on Home IS the entry — go straight to workflow
-			// picker with prompt encoded. Per anh feedback: no duplicate hero on
-			// /quick-create page (that page now redirects to /).
-			router.push(`/quick-create/workflows?prompt=${encodeURIComponent(prompt)}`);
-		} else {
-			// Pro Workspace = projects list (OpenCut inherited /projects).
+	const urlValid = VIDEO_URL_PATTERN.test(videoUrl.trim());
+
+	const handleSubmit = async () => {
+		setPathBError(null);
+		setPathBInfo(null);
+
+		if (mode === "pro") {
+			if (!prompt.trim()) return;
 			router.push(`/projects?prompt=${encodeURIComponent(prompt)}`);
+			return;
+		}
+
+		// mode === "quick"
+		if (quickPath === "ideaA") {
+			if (!prompt.trim()) return;
+			router.push(`/quick-create/workflows?prompt=${encodeURIComponent(prompt)}`);
+			return;
+		}
+
+		// Path B — paste video URL → POST session + show status
+		if (!urlValid) {
+			setPathBError("URL phải là YouTube / TikTok / Instagram Reel / Vimeo");
+			return;
+		}
+		setSubmitting(true);
+		try {
+			const ws = await apiFetch<{ items: WorkspaceRow[] }>("/api/workspaces");
+			const firstWs = ws.items[0];
+			if (!firstWs) {
+				router.push(`/login?next=${encodeURIComponent("/")}`);
+				return;
+			}
+			const session = await apiFetch<SessionResponse>("/api/quick-create/sessions", {
+				method: "POST",
+				body: JSON.stringify({
+					workspaceId: firstWs.id,
+					mode: "pathB",
+					prompt: "",
+					pathBVideoUrl: videoUrl.trim(),
+				}),
+			});
+			setPathBInfo(
+				`✓ Em đã save link cho anh (session ${session.id.slice(0, 8)}). Path B reverse engineer pipeline ` +
+					`đang được build (Sprint 27+ — cần GPU droplet + FFmpeg/Whisper/Gemini visual). ` +
+					`Anh sẽ nhận notification khi pipeline ready.`,
+			);
+			setVideoUrl("");
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : "Network error";
+			if (msg.includes("401") || msg.includes("Unauthorized")) {
+				router.push(`/login?next=${encodeURIComponent("/")}`);
+				return;
+			}
+			setPathBError(msg);
+		} finally {
+			setSubmitting(false);
 		}
 	};
 
@@ -192,35 +257,133 @@ export function DashboardView({ user }: DashboardViewProps) {
 						</p>
 					</div>
 
-					{/* Hero input */}
-					<div className="relative mb-5">
-						<textarea
-							value={prompt}
-							onChange={(e) => setPrompt(e.target.value)}
-							placeholder={
-								mode === "quick"
-									? "Cho em chủ đề + ngôn ngữ... ví dụ: làm reel 30s quảng cáo serum cho phụ nữ 30+, hook 3s đầu nhấn lợi ích chống lão hóa"
-									: "Lên kịch bản, storyboard hoặc video... ví dụ: làm reel 30s quảng cáo quần co giãn cho senior 50+, tone ấm áp, hook 3s đầu nhấn vấn đề đau lưng"
-							}
-							className="min-h-[140px] w-full resize-y rounded-xl border border-white/10 bg-zinc-900 px-5 pb-14 pt-4.5 text-base text-white/87 placeholder-white/50 focus:border-[#3B82F6] focus:outline-none"
-						/>
-						<div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-							<button
-								className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-white/50 hover:bg-white/5 hover:text-white"
-								title="Đính kèm file"
-							>
-								<Plus className="h-4 w-4" />
-							</button>
-							<button
-								onClick={handleSubmit}
-								disabled={!prompt.trim()}
-								className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black hover:bg-zinc-200 disabled:opacity-50"
-								title="Gửi"
-							>
-								<Send className="h-4 w-4" />
-							</button>
+					{/* Quick Create sub-toggle: Path A (idea) vs Path B (video reference) */}
+					{mode === "quick" && (
+						<div className="mb-3 flex justify-center">
+							<div className="inline-flex gap-1 rounded-full border border-white/10 bg-zinc-900/40 p-1">
+								<button
+									type="button"
+									onClick={() => {
+										setQuickPath("ideaA");
+										setPathBError(null);
+										setPathBInfo(null);
+									}}
+									className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors ${
+										quickPath === "ideaA"
+											? "bg-zinc-800 text-white"
+											: "text-white/50 hover:text-white"
+									}`}
+								>
+									<Lightbulb className="h-3 w-3" />
+									Từ ý tưởng
+								</button>
+								<button
+									type="button"
+									onClick={() => {
+										setQuickPath("videoB");
+										setPathBError(null);
+										setPathBInfo(null);
+									}}
+									className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors ${
+										quickPath === "videoB"
+											? "bg-zinc-800 text-white"
+											: "text-white/50 hover:text-white"
+									}`}
+								>
+									<Video className="h-3 w-3" />
+									Từ video tham khảo
+								</button>
+							</div>
 						</div>
-					</div>
+					)}
+
+					{/* Hero input — textarea (Path A or Pro) OR URL input (Path B) */}
+					{!(mode === "quick" && quickPath === "videoB") ? (
+						<div className="relative mb-5">
+							<textarea
+								value={prompt}
+								onChange={(e) => setPrompt(e.target.value)}
+								placeholder={
+									mode === "quick"
+										? "Cho em chủ đề + ngôn ngữ... ví dụ: làm reel 30s quảng cáo serum cho phụ nữ 30+, hook 3s đầu nhấn lợi ích chống lão hóa"
+										: "Lên kịch bản, storyboard hoặc video... ví dụ: làm reel 30s quảng cáo quần co giãn cho senior 50+, tone ấm áp, hook 3s đầu nhấn vấn đề đau lưng"
+								}
+								className="min-h-[140px] w-full resize-y rounded-xl border border-white/10 bg-zinc-900 px-5 pb-14 pt-4.5 text-base text-white/87 placeholder-white/50 focus:border-[#3B82F6] focus:outline-none"
+							/>
+							<div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+								<button
+									type="button"
+									className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-white/50 hover:bg-white/5 hover:text-white"
+									title="Đính kèm file"
+								>
+									<Plus className="h-4 w-4" />
+								</button>
+								<button
+									type="button"
+									onClick={() => void handleSubmit()}
+									disabled={!prompt.trim() || submitting}
+									className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black hover:bg-zinc-200 disabled:opacity-50"
+									title="Gửi"
+								>
+									<Send className="h-4 w-4" />
+								</button>
+							</div>
+						</div>
+					) : (
+						<div className="mb-5 space-y-3 rounded-xl border-2 border-dashed border-white/10 bg-zinc-900/40 p-6">
+							<div className="flex items-center gap-3 text-white/60">
+								<Video className="h-5 w-5 shrink-0" />
+								<div>
+									<div className="text-sm font-medium text-white/87">
+										Paste URL video tham khảo
+									</div>
+									<div className="text-[11px] text-white/50">
+										YouTube · TikTok · Instagram Reel · Vimeo. Em phân tích cảnh + âm
+										thanh + script + rebuild với assets của anh.
+									</div>
+								</div>
+							</div>
+							<div className="flex gap-2">
+								<input
+									type="url"
+									value={videoUrl}
+									onChange={(e) => setVideoUrl(e.target.value)}
+									placeholder="https://www.youtube.com/watch?v=..."
+									disabled={submitting}
+									className="flex-1 rounded-md border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white/87 placeholder-white/30 focus:border-[#3B82F6] focus:outline-none disabled:opacity-50"
+								/>
+								<button
+									type="button"
+									onClick={() => void handleSubmit()}
+									disabled={!urlValid || submitting}
+									className="flex items-center gap-1.5 rounded-md bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-[#3B82F6]/90 disabled:opacity-50"
+								>
+									{submitting ? "Đang xử lý..." : "Phân tích"}
+								</button>
+							</div>
+							{videoUrl.trim().length > 0 && !urlValid && (
+								<div className="text-[11px] text-orange-400">
+									URL phải bắt đầu bằng youtube.com / youtu.be / tiktok.com /
+									instagram.com/reel / vimeo.com
+								</div>
+							)}
+							<div className="text-[11px] text-white/40">
+								Cost ~$0.07-0.10/phút · Quota: Standard 5min · Pro 30min · Max 120min
+							</div>
+							{pathBError && (
+								<div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+									<Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+									<span>{pathBError}</span>
+								</div>
+							)}
+							{pathBInfo && (
+								<div className="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-300">
+									<Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+									<span>{pathBInfo}</span>
+								</div>
+							)}
+						</div>
+					)}
 
 					{/* Featured chips */}
 					<div className="mb-12 flex flex-wrap items-center gap-2">
