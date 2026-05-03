@@ -10,6 +10,7 @@ import { z } from "zod";
 import { workflowRegistry, isCrossianRagEligible } from "@pixstudio/quick-create";
 import type { Language } from "@pixstudio/quick-create";
 import { requireUser } from "../plugins/require-auth.js";
+import { runPathBPipeline } from "../services/path-b-pipeline.js";
 
 const SessionIdParamsSchema = z.object({
 	sessionId: z.string().uuid(),
@@ -152,9 +153,9 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 				},
 			})) as SessionRow;
 
-			// Path B reverse engineer scaffold: create job row keyed to session.
-			// Pipeline (yt-dlp + FFmpeg + PySceneDetect + Demucs + Whisper + Gemini)
-			// runs Sprint 10 — for now we capture the URL so the job is queued.
+			// Path B: create job row + auto-trigger pipeline async.
+			// Real pipeline orchestration (yt-dlp + FFmpeg scene detect + ElevenLabs
+			// Scribe + Replicate Demucs + Gemini visual) shipped Sprints 30-35.
 			let pathBJobId: string | null = null;
 			if (req.body.mode === "pathB" && req.body.pathBVideoUrl) {
 				try {
@@ -164,14 +165,104 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 							userId: user.id,
 							workspaceId: req.body.workspaceId,
 							sourceUrl: req.body.pathBVideoUrl,
-							status: "PENDING",
+							status: "DOWNLOADING",
+							progress: 1,
 						},
 					});
 					pathBJobId = job.id;
 					req.log.info(
 						{ sessionId: session.id, jobId: job.id, sourceUrl: req.body.pathBVideoUrl },
-						"path-b reverse-engineer job queued (pipeline pending Sprint 10)",
+						"path-b job auto-trigger pipeline",
 					);
+
+					// Fire-and-forget pipeline. Status updates happen inside runPathBPipeline.
+					const sourceUrl = req.body.pathBVideoUrl;
+					void (async () => {
+						try {
+							const extraction = await runPathBPipeline({
+								jobId: job.id,
+								sessionId: session.id,
+								sourceUrl,
+								prisma: app.prisma,
+								r2: app.r2 ?? null,
+								r2Buckets: app.r2Buckets,
+								logger: app.log,
+							});
+							const totalDuration = extraction.scenes.reduce((s, sc) => s + sc.durationSec, 0);
+							const editorState = {
+								version: 1,
+								title: "Reverse engineered from reference",
+								totalDurationSec: totalDuration,
+								sourceVideoR2Key: extraction.videoR2Key,
+								tracks: [
+									{
+										id: "video-1",
+										kind: "video",
+										segments: extraction.scenes.map((sc) => {
+											const visual = extraction.visualAnalysis.find((v) => v.sceneId === sc.id);
+											return {
+												id: `seg-video-${sc.id}`,
+												sceneId: sc.id,
+												startSec: sc.startSec,
+												durationSec: sc.durationSec,
+												sourceTrim: { fromSec: sc.startSec, toSec: sc.endSec },
+												visualHint: visual ?? null,
+											};
+										}),
+									},
+									{
+										id: "audio-source",
+										kind: "audio",
+										segments: [
+											{
+												id: "seg-audio-source",
+												startSec: 0,
+												durationSec: totalDuration,
+												r2Key: extraction.audioR2Key,
+												stems: extraction.stems ?? null,
+											},
+										],
+									},
+									{
+										id: "subtitle-1",
+										kind: "subtitle",
+										segments: extraction.transcript.map((seg, i) => ({
+											id: `seg-sub-${i}`,
+											startSec: seg.start,
+											durationSec: Math.max(0, seg.end - seg.start),
+											text: seg.text,
+											style: { font: "Bebas Neue", size: 64, color: "#FFFFFF", strokeColor: "#000000", strokeWidth: 4 },
+										})),
+									},
+								],
+								extractionMeta: {
+									sceneCount: extraction.scenes.length,
+									transcriptSegments: extraction.transcript.length,
+									visualAnalyzed: extraction.visualAnalysis.length,
+									hasStems: !!extraction.stems,
+								},
+							};
+							await app.prisma.reverseEngineerJob.update({
+								where: { id: job.id },
+								data: {
+									status: "COMPLETED",
+									progress: 100,
+									completedAt: new Date(),
+									outputEditorStateJson: editorState as never,
+								},
+							});
+							app.log.info({ jobId: job.id, scenes: extraction.scenes.length }, "path-b pipeline complete");
+						} catch (err) {
+							app.log.error({ jobId: job.id, err: String(err) }, "path-b pipeline FAILED");
+							await app.prisma.reverseEngineerJob.update({
+								where: { id: job.id },
+								data: {
+									status: "FAILED",
+									errorMessage: err instanceof Error ? err.message.slice(0, 1000) : String(err).slice(0, 1000),
+								},
+							});
+						}
+					})();
 				} catch (err) {
 					req.log.error({ err }, "failed to create reverse-engineer job");
 				}
