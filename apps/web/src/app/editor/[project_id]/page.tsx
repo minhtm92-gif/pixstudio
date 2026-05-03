@@ -34,6 +34,7 @@ import {
 	bookmarkNotesPreviewOverlay,
 	getBookmarkPreviewOverlaySource,
 } from "@/timeline/bookmarks/index";
+import { CloudSyncIndicator } from "@/components/pixstudio/cloud-sync-indicator";
 
 export default function Editor() {
 	const params = useParams();
@@ -51,6 +52,12 @@ export default function Editor() {
 					<Onboarding />
 					<MigrationDialog />
 					<ChangelogNotification />
+					{/* PixStudio cloud sync — observer that auto-saves to apps/api */}
+					<div className="pointer-events-none fixed bottom-4 left-4 z-30">
+						<div className="pointer-events-auto">
+							<CloudSyncIndicator projectId={projectId} />
+						</div>
+					</div>
 				</div>
 			</EditorProvider>
 		</MobileGate>
