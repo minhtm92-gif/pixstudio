@@ -10,7 +10,7 @@ import { z } from "zod";
 import { workflowRegistry, isCrossianRagEligible } from "@pixstudio/quick-create";
 import type { Language } from "@pixstudio/quick-create";
 import { requireUser } from "../plugins/require-auth.js";
-import { runPathBPipeline } from "../services/path-b-pipeline.js";
+import { runPathBPipeline, JobCancelledError } from "../services/path-b-pipeline.js";
 
 const SessionIdParamsSchema = z.object({
 	sessionId: z.string().uuid(),
@@ -253,6 +253,10 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 							});
 							app.log.info({ jobId: job.id, scenes: extraction.scenes.length }, "path-b pipeline complete");
 						} catch (err) {
+							if (err instanceof JobCancelledError) {
+								app.log.info({ jobId: job.id }, "path-b pipeline exited (cancelled)");
+								return;
+							}
 							app.log.error({ jobId: job.id, err: String(err) }, "path-b pipeline FAILED");
 							await app.prisma.reverseEngineerJob.update({
 								where: { id: job.id },

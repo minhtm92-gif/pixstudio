@@ -80,7 +80,23 @@ function runCmd(cmd: string, args: string[], cwd?: string, timeoutMs = 600_000):
 	});
 }
 
+class JobCancelledError extends Error {
+	constructor(public jobId: string) {
+		super(`Job ${jobId} cancelled`);
+		this.name = "JobCancelledError";
+	}
+}
+
 async function updateProgress(ctx: PipelineContext, progress: number, status?: string): Promise<void> {
+	// Cooperative cancellation: read current status first; if user/admin cancelled
+	// via /api/path-b/jobs/:id/cancel, exit pipeline early instead of clobbering.
+	const current = await ctx.prisma.reverseEngineerJob.findUnique({
+		where: { id: ctx.jobId },
+		select: { status: true },
+	});
+	if (current?.status === "CANCELLED") {
+		throw new JobCancelledError(ctx.jobId);
+	}
 	await ctx.prisma.reverseEngineerJob.update({
 		where: { id: ctx.jobId },
 		data: {
@@ -89,6 +105,8 @@ async function updateProgress(ctx: PipelineContext, progress: number, status?: s
 		},
 	});
 }
+
+export { JobCancelledError };
 
 /**
  * Stage 1 — Download reference video via yt-dlp + extract audio via ffmpeg.

@@ -163,6 +163,54 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 		},
 	});
 
+	app.post("/jobs/:id/cancel", {
+		schema: { params: z.object({ id: z.string().uuid() }) },
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+
+			const job = await app.prisma.reverseEngineerJob.findUnique({
+				where: { id: req.params.id },
+			});
+			if (!job) {
+				reply.code(404);
+				return { error: "Job not found" };
+			}
+			if (job.userId !== user.id) {
+				// Allow admin to cancel any user's job
+				const dbUser = await app.prisma.user.findUnique({
+					where: { id: user.id },
+					select: { systemRole: true },
+				});
+				if (dbUser?.systemRole !== "ADMIN") {
+					reply.code(403);
+					return { error: "Not your job" };
+				}
+			}
+			if (job.status === "COMPLETED" || job.status === "FAILED" || job.status === "CANCELLED") {
+				reply.code(409);
+				return { error: `Job already ${job.status}` };
+			}
+
+			await app.prisma.reverseEngineerJob.update({
+				where: { id: job.id },
+				data: {
+					status: "CANCELLED",
+					errorMessage: "Cancelled by user",
+					completedAt: new Date(),
+				},
+			});
+
+			req.log.info({ jobId: job.id }, "path-b job cancelled by user");
+
+			return {
+				jobId: job.id,
+				status: "CANCELLED",
+				message: "Pipeline marked CANCELLED. Background process will exit at next stage check.",
+			};
+		},
+	});
+
 	app.post("/jobs/:id/handoff", {
 		schema: { params: z.object({ id: z.string().uuid() }) },
 		handler: async (req, reply) => {
