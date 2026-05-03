@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { apiFetch } from "@/lib/api-client";
 
 type Pace = "slow" | "medium" | "fast";
 type Language = "vi" | "en";
@@ -21,6 +23,7 @@ type MusicSource = "library" | "uploaded";
 
 interface ConfigFormProps {
 	workflowId: string;
+	sessionId?: string | undefined;
 }
 
 interface ConfigState {
@@ -67,20 +70,38 @@ const DEFAULT_CONFIG: ConfigState = {
 	musicSource: "library",
 };
 
-export function ConfigForm({ workflowId }: ConfigFormProps) {
+export function ConfigForm({ workflowId, sessionId }: ConfigFormProps) {
 	const router = useRouter();
 	const [config, setConfig] = useState<ConfigState>(DEFAULT_CONFIG);
 	const [submitting, setSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
+		setError(null);
+		if (!sessionId) {
+			setError(
+				"Thiếu sessionId. Anh quay lại Workflows view để tạo session mới.",
+			);
+			return;
+		}
 		setSubmitting(true);
-		// TODO Sprint 2: PATCH /api/quick-create/sessions/:id/config { workflowId, configOverrides: config }
-		// then router.push(`/quick-create/sessions/:id/outline`)
-		console.info("[quick-create] config submitted", { workflowId, config });
-		await new Promise((r) => setTimeout(r, 500));
-		setSubmitting(false);
-		router.push(`/quick-create/workflows/${workflowId}/outline?sessionId=stub`);
+		try {
+			await apiFetch(`/api/quick-create/sessions/${sessionId}/config`, {
+				method: "PATCH",
+				body: JSON.stringify({
+					workflowId,
+					configOverrides: config,
+				}),
+			});
+			router.push(
+				`/quick-create/workflows/${workflowId}/outline?sessionId=${sessionId}`,
+			);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : "Network error";
+			setError(msg);
+			setSubmitting(false);
+		}
 	};
 
 	const update = <K extends keyof ConfigState>(key: K, value: ConfigState[K]) =>
@@ -364,6 +385,12 @@ export function ConfigForm({ workflowId }: ConfigFormProps) {
 			</div>
 
 			{/* CTA */}
+			{error && (
+				<div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+					<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+					<span>{error}</span>
+				</div>
+			)}
 			<div className="flex justify-end gap-2">
 				<Button
 					type="button"
@@ -373,8 +400,8 @@ export function ConfigForm({ workflowId }: ConfigFormProps) {
 				>
 					Quay lại
 				</Button>
-				<Button type="submit" disabled={submitting} className="px-8">
-					{submitting ? "Đang tạo outline..." : "Generate Outline →"}
+				<Button type="submit" disabled={submitting || !sessionId} className="px-8">
+					{submitting ? "Đang lưu config..." : "Generate Outline →"}
 				</Button>
 			</div>
 		</form>

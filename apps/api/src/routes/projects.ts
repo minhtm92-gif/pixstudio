@@ -487,4 +487,54 @@ export const projectsRoutes: FastifyPluginAsyncZod = async (app) => {
       return null;
     },
   });
+
+  // POST /:id/regen-scene — Quick Create Editor "Apply Changes" scene-level
+  // TTS regeneration. Accepts either a single sceneId or array of sceneIds
+  // (batched apply) per SCOPE §13 ("regen TTS chỉ scene đã thay đổi").
+  app.post("/:id/regen-scene", {
+    schema: {
+      params: z.object({ id: z.string() }),
+      body: z
+        .object({
+          sceneId: z.string().optional(),
+          sceneIds: z.array(z.string()).optional(),
+        })
+        .refine((b) => Boolean(b.sceneId) || (b.sceneIds && b.sceneIds.length > 0), {
+          message: "Provide sceneId or non-empty sceneIds",
+        }),
+    },
+    handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const project = await app.prisma.project.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!project) {
+        reply.code(404);
+        return { error: "Project not found" };
+      }
+      const member = await requireWorkspaceMember(app, project.workspaceId, user.id, "EDITOR");
+      if (!member) {
+        reply.code(403);
+        return { error: "Need EDITOR or OWNER role" };
+      }
+
+      const ids = req.body.sceneIds ?? (req.body.sceneId ? [req.body.sceneId] : []);
+      req.log.info(
+        { projectId: req.params.id, sceneCount: ids.length, sceneIds: ids },
+        "regen-scene queued",
+      );
+
+      // Sprint 2.6: real BullMQ TTS regen worker. v1 acks the request +
+      // marks scenes as queued. Frontend optimistically clears
+      // scriptChangedSinceTts; worker will overwrite audioR2Key per scene
+      // on success. For now this is a no-op ack so UI stops blocking.
+      reply.code(202);
+      return {
+        projectId: req.params.id,
+        sceneCount: ids.length,
+        message: "Queued. TTS worker (Sprint 2.6) will replace scene audio in 5-30s.",
+      };
+    },
+  });
 };

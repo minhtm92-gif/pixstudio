@@ -12,6 +12,7 @@ import { ConfigForm } from "../../../_components/config-form";
 
 interface PageProps {
 	params: Promise<{ id: string }>;
+	searchParams: Promise<{ sessionId?: string }>;
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -21,8 +22,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 	};
 }
 
-export default async function WorkflowConfigPage({ params }: PageProps) {
+export default async function WorkflowConfigPage({ params, searchParams }: PageProps) {
 	const { id } = await params;
+	const { sessionId } = await searchParams;
 	return (
 		<main className="min-h-screen bg-background">
 			<div className="container mx-auto max-w-3xl px-4 py-8">
@@ -35,7 +37,7 @@ export default async function WorkflowConfigPage({ params }: PageProps) {
 					Workflows
 				</Link>
 
-				<ConfigForm workflowId={id} />
+				<ConfigForm workflowId={id} sessionId={sessionId} />
 			</div>
 		</main>
 	);

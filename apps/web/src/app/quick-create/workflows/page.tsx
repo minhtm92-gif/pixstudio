@@ -1,22 +1,18 @@
 /**
- * Quick Create — Workflow Picker (View 2, Phase 1 Sprint 1 Story 1.2).
+ * Quick Create — Workflow Picker (View 2 per SCOPE §3.2 + §13).
  *
- * 8 workflow cards, click → View 3 config modal.
- * Server integration Sprint 2 (GET /api/quick-create/workflows).
- *
- * For now: hardcoded list mirrors `packages/quick-create/src/templates/`.
- * After Sprint 2 wire-up, fetch from API and filter by user tier + seasonal lockout.
+ * 8 workflow cards + 3 Max plugins. Click → POST /api/quick-create/sessions
+ * → navigate to /config?sessionId=X (View 3).
  */
 
-import { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft, Crown, Lock, Sparkles } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+"use client";
 
-export const metadata: Metadata = {
-	title: "Browse Workflows · Quick Create · PixStudio",
-	description: "8 workflow tune sẵn cho creator Việt Nam.",
-};
+import { useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Crown, Lock, Sparkles, Loader2, AlertCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { apiFetch } from "@/lib/api-client";
 
 interface WorkflowCard {
 	id: string;
@@ -27,13 +23,10 @@ interface WorkflowCard {
 	requiredTier: "standard" | "pro" | "max";
 	platform: { ratio: string; defaultDurationSec: number };
 	pace: "slow" | "medium" | "fast";
-	/** Workflow scaffold ready, template content lands in a future sprint. */
-	disabled?: boolean;
-	/** True when current date is outside Tết window (Dec–Feb). */
 	seasonalLockout?: boolean;
 }
 
-const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
+const WORKFLOWS: WorkflowCard[] = [
 	{
 		id: "ad-product-vn",
 		name: "Quảng cáo sản phẩm",
@@ -53,7 +46,6 @@ const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
 		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 45 },
 		pace: "slow",
-		disabled: true,
 	},
 	{
 		id: "demo-product",
@@ -64,7 +56,6 @@ const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
 		requiredTier: "standard",
 		platform: { ratio: "16:9", defaultDurationSec: 60 },
 		pace: "medium",
-		disabled: true,
 	},
 	{
 		id: "reel-hook-3s",
@@ -75,7 +66,6 @@ const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
 		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 15 },
 		pace: "fast",
-		disabled: true,
 	},
 	{
 		id: "youtube-long",
@@ -86,7 +76,6 @@ const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
 		requiredTier: "pro",
 		platform: { ratio: "16:9", defaultDurationSec: 600 },
 		pace: "medium",
-		disabled: true,
 	},
 	{
 		id: "storytelling-cinematic",
@@ -97,7 +86,6 @@ const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
 		requiredTier: "pro",
 		platform: { ratio: "16:9", defaultDurationSec: 120 },
 		pace: "slow",
-		disabled: true,
 	},
 	{
 		id: "tet-bundle-vn",
@@ -109,7 +97,6 @@ const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
 		platform: { ratio: "9:16", defaultDurationSec: 30 },
 		pace: "medium",
 		seasonalLockout: !isInTetWindow(new Date()),
-		disabled: true,
 	},
 	{
 		id: "script-to-video",
@@ -120,12 +107,35 @@ const WORKFLOWS_PHASE_1_LAUNCH: WorkflowCard[] = [
 		requiredTier: "pro",
 		platform: { ratio: "9:16", defaultDurationSec: 60 },
 		pace: "medium",
-		disabled: true,
+	},
+];
+
+interface PluginCard {
+	id: string;
+	name: string;
+	description: string;
+}
+
+const PLUGINS: PluginCard[] = [
+	{
+		id: "voice-clone",
+		name: "Clone giọng",
+		description: "ElevenLabs Instant Voice Cloning, max 5 voices/user",
+	},
+	{
+		id: "brand-kit",
+		name: "Brand kit",
+		description: "Override watermark, intro/outro, color theme, typography",
+	},
+	{
+		id: "stylization",
+		name: "Stylization preset",
+		description: "Predefined LUT + color grade áp dụng post-process",
 	},
 ];
 
 function isInTetWindow(now: Date): boolean {
-	const month = now.getMonth() + 1; // 1-12
+	const month = now.getMonth() + 1;
 	return month === 12 || month === 1 || month === 2;
 }
 
@@ -135,61 +145,114 @@ const TIER_BADGE_LABEL: Record<WorkflowCard["requiredTier"], string> = {
 	max: "Max",
 };
 
+interface WorkspaceRow {
+	id: string;
+	name: string;
+}
+
+interface SessionResponse {
+	id: string;
+}
+
 export default function WorkflowsPage() {
+	const router = useRouter();
+	const searchParams = useSearchParams();
+	const promptFromHero = searchParams.get("prompt") ?? "";
+
+	const [error, setError] = useState<string | null>(null);
+	const [creatingId, setCreatingId] = useState<string | null>(null);
+	const [, startTransition] = useTransition();
+
+	const handleSelect = async (workflowId: string) => {
+		setError(null);
+		setCreatingId(workflowId);
+		try {
+			const ws = await apiFetch<{ items: WorkspaceRow[] }>("/api/workspaces");
+			const firstWs = ws.items[0];
+			if (!firstWs) {
+				router.push(`/login?next=${encodeURIComponent("/quick-create/workflows")}`);
+				return;
+			}
+			const session = await apiFetch<SessionResponse>("/api/quick-create/sessions", {
+				method: "POST",
+				body: JSON.stringify({
+					workspaceId: firstWs.id,
+					mode: "pathA",
+					prompt: promptFromHero,
+				}),
+			});
+			startTransition(() => {
+				router.push(
+					`/quick-create/workflows/${workflowId}/config?sessionId=${session.id}`,
+				);
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : "Network error";
+			if (msg.includes("401") || msg.includes("Unauthorized")) {
+				router.push(`/login?next=${encodeURIComponent("/quick-create/workflows")}`);
+				return;
+			}
+			setError(msg);
+		} finally {
+			setCreatingId(null);
+		}
+	};
+
 	return (
 		<main className="min-h-screen bg-background">
 			<div className="container mx-auto max-w-6xl px-4 py-8">
-				{/* Breadcrumb */}
 				<Link
-					href="/quick-create"
+					href="/"
 					className="mb-4 inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
 				>
 					<ArrowLeft className="h-4 w-4" />
-					Quick Create
+					Home
 				</Link>
 
-				{/* Header */}
 				<div className="mb-8 space-y-2">
-					<h1 className="font-bold text-3xl tracking-tight">
-						Choose a workflow
-					</h1>
+					<h1 className="font-bold text-3xl tracking-tight">Choose a workflow</h1>
 					<p className="text-muted-foreground">
-						9 workflow tune sẵn cho creator Việt Nam · Standard / Pro / Max tier
+						8 workflow tune sẵn cho creator Việt Nam · Standard / Pro / Max tier
 					</p>
+					{promptFromHero && (
+						<p className="text-xs text-muted-foreground">
+							Prompt từ Hero: <span className="italic">{promptFromHero.slice(0, 120)}{promptFromHero.length > 120 ? "..." : ""}</span>
+						</p>
+					)}
 				</div>
 
-				{/* Grid */}
+				{error && (
+					<div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+						<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+						<span>{error}</span>
+					</div>
+				)}
+
 				<div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-					{WORKFLOWS_PHASE_1_LAUNCH.map((wf) => {
-						const blocked = wf.disabled || wf.seasonalLockout;
+					{WORKFLOWS.map((wf) => {
+						const blocked = wf.seasonalLockout;
+						const busy = creatingId === wf.id;
 						return (
 							<button
 								key={wf.id}
 								type="button"
-								disabled={blocked}
+								disabled={blocked || busy}
+								onClick={() => void handleSelect(wf.id)}
 								className={`group flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 ${
 									blocked ? "" : "hover:border-primary"
 								}`}
 							>
-								{/* Thumbnail */}
 								<div
 									className="aspect-video w-full bg-gradient-to-br from-muted to-muted-foreground/20 bg-cover bg-center"
 									style={{ backgroundImage: `url(${wf.thumbnail})` }}
 								/>
-
-								{/* Content */}
 								<div className="space-y-2 p-4">
 									<div className="flex items-start justify-between gap-2">
 										<h3 className="font-semibold leading-tight">{wf.name}</h3>
 										<div className="flex flex-shrink-0 items-center gap-1">
 											{wf.requiredTier !== "standard" && (
-												<Badge
-													variant="secondary"
-													className="flex items-center gap-1 text-xs"
-												>
-													{wf.requiredTier === "max" && (
-														<Crown className="h-3 w-3" />
-													)}
+												<Badge variant="secondary" className="flex items-center gap-1 text-xs">
+													{wf.requiredTier === "max" && <Crown className="h-3 w-3" />}
 													{TIER_BADGE_LABEL[wf.requiredTier]}
 												</Badge>
 											)}
@@ -201,28 +264,27 @@ export default function WorkflowsPage() {
 											)}
 										</div>
 									</div>
-									<p className="text-muted-foreground text-sm">
-										{wf.description}
-									</p>
+									<p className="text-muted-foreground text-sm">{wf.description}</p>
 									<div className="flex items-center gap-2 pt-1 text-muted-foreground text-xs">
 										<span>{wf.platform.ratio}</span>
 										<span>·</span>
 										<span>{wf.platform.defaultDurationSec}s</span>
 										<span>·</span>
 										<span className="capitalize">{wf.pace} pace</span>
+										{busy && (
+											<>
+												<span>·</span>
+												<Loader2 className="h-3 w-3 animate-spin" />
+												<span>Đang tạo session…</span>
+											</>
+										)}
 									</div>
-									{wf.disabled && (
-										<p className="pt-2 text-amber-600 text-xs dark:text-amber-400">
-											Coming soon — template content lands next sprint.
-										</p>
-									)}
 								</div>
 							</button>
 						);
 					})}
 				</div>
 
-				{/* Plugin section (Max tier only) */}
 				<section className="mt-12 space-y-4 rounded-lg border bg-muted/20 p-6">
 					<div className="flex items-center gap-2">
 						<Sparkles className="h-5 w-5" />
@@ -235,20 +297,23 @@ export default function WorkflowsPage() {
 					<p className="text-muted-foreground text-sm">
 						3 plugins extend Quick Create cho Max users:
 					</p>
-					<ul className="space-y-1 text-sm">
-						<li>
-							<strong>Clone giọng</strong> — ElevenLabs Instant Voice Cloning,
-							max 5 voices/user
-						</li>
-						<li>
-							<strong>Brand kit</strong> — override watermark, intro/outro,
-							color theme, typography
-						</li>
-						<li>
-							<strong>Stylization preset</strong> — predefined LUT + color grade
-							áp dụng post-process
-						</li>
-					</ul>
+					<div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+						{PLUGINS.map((plugin) => (
+							<button
+								key={plugin.id}
+								type="button"
+								disabled
+								className="flex flex-col gap-1 rounded-md border bg-card p-3 text-left opacity-60"
+								title="Max tier required — Phase 1.5 wire-up"
+							>
+								<div className="flex items-center gap-1.5">
+									<Crown className="h-3.5 w-3.5 text-amber-500" />
+									<strong className="text-sm">{plugin.name}</strong>
+								</div>
+								<span className="text-xs text-muted-foreground">{plugin.description}</span>
+							</button>
+						))}
+					</div>
 					<p className="text-muted-foreground text-xs">
 						Phase 1.5 (Sprint 6+) wire-up.
 					</p>
