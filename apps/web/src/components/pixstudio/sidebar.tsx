@@ -9,7 +9,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, FolderOpen, Package, LayoutGrid, User, Settings } from "lucide-react";
+import {
+	Home,
+	FolderOpen,
+	Package,
+	LayoutGrid,
+	User,
+	Settings,
+	Palette,
+	BarChart3,
+	Bug,
+	HardDrive,
+	Cpu,
+} from "lucide-react";
 import type { PixStudioUser } from "@/lib/api-client";
 
 interface SidebarProps {
@@ -22,6 +34,17 @@ const NAV_ITEMS = [
 	{ href: "/assets", label: "Asset Studio", icon: <Package className="h-4 w-4" /> },
 	{ href: "/templates", label: "Templates", icon: <LayoutGrid className="h-4 w-4" /> },
 	{ href: "/account", label: "You", icon: <User className="h-4 w-4" /> },
+];
+
+const SETTINGS_NAV_ITEMS = [
+	{ href: "/settings/brand-kit", label: "Brand Kit", icon: <Palette className="h-4 w-4" /> },
+];
+
+const ADMIN_NAV_ITEMS = [
+	{ href: "/admin/kpi", label: "KPI Dashboard", icon: <BarChart3 className="h-4 w-4" /> },
+	{ href: "/admin/bug-reports", label: "Bug Reports", icon: <Bug className="h-4 w-4" /> },
+	{ href: "/admin/stock", label: "Stock Library", icon: <HardDrive className="h-4 w-4" /> },
+	{ href: "/admin/gpu", label: "AI Compute", icon: <Cpu className="h-4 w-4" /> },
 ];
 
 const TIER_COLOR_MAP = {
@@ -72,6 +95,58 @@ export function Sidebar({ user }: SidebarProps) {
 						);
 					})}
 				</nav>
+
+				{/* Settings group */}
+				<div className="mt-5">
+					<div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+						Settings
+					</div>
+					<nav className="flex flex-col gap-0.5">
+						{SETTINGS_NAV_ITEMS.map((item) => {
+							const active = pathname?.startsWith(item.href);
+							return (
+								<Link
+									key={item.href}
+									href={item.href}
+									className={`flex items-center gap-2.5 rounded px-2 py-2 text-sm transition-colors ${
+										active
+											? "bg-white/10 text-white"
+											: "text-white/60 hover:bg-white/5 hover:text-white"
+									}`}
+								>
+									{item.icon}
+									<span>{item.label}</span>
+								</Link>
+							);
+						})}
+					</nav>
+				</div>
+
+				{/* Admin group — visible to all but pages gate at server */}
+				<div className="mt-5">
+					<div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-yellow-500/60">
+						Admin
+					</div>
+					<nav className="flex flex-col gap-0.5">
+						{ADMIN_NAV_ITEMS.map((item) => {
+							const active = pathname?.startsWith(item.href);
+							return (
+								<Link
+									key={item.href}
+									href={item.href}
+									className={`flex items-center gap-2.5 rounded px-2 py-2 text-sm transition-colors ${
+										active
+											? "bg-white/10 text-white"
+											: "text-white/60 hover:bg-white/5 hover:text-white"
+									}`}
+								>
+									{item.icon}
+									<span>{item.label}</span>
+								</Link>
+							);
+						})}
+					</nav>
+				</div>
 			</div>
 
 			{/* Bottom: credits + user card */}
