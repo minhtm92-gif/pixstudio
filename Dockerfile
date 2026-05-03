@@ -26,10 +26,12 @@ FROM base AS runtime
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV HOST=0.0.0.0
-# Phase 3 binaries: ffmpeg (render + audio extract), Python + pip (PySceneDetect),
-# yt-dlp (Path B reference video download). Total ~150MB Alpine.
-RUN apk add --no-cache ffmpeg python3 py3-pip yt-dlp \
-  && pip3 install --break-system-packages --no-cache-dir scenedetect[opencv-headless]
+# Phase 3 binaries: ffmpeg (render + audio extract + scene detection via select
+# filter), yt-dlp (Path B reference video download). Total ~80MB Alpine.
+# PySceneDetect dropped — required opencv-python-headless which has no musl
+# wheel and would need gcc+cmake to compile (~500MB build deps). FFmpeg's
+# built-in `select='gt(scene,X)'` filter detects scene cuts equivalently.
+RUN apk add --no-cache ffmpeg yt-dlp
 COPY --from=build /repo /repo
 WORKDIR /repo/apps/api
 EXPOSE 8080

@@ -146,44 +146,76 @@ async function stage1Download(ctx: PipelineContext, workDir: string): Promise<{ 
 }
 
 /**
- * Stage 2 — PySceneDetect scene boundaries (CPU-friendly, ~5-10s for typical clip).
+ * Stage 2 — FFmpeg scene boundaries via select filter (CPU, ~5-10s).
+ * Replaces PySceneDetect which needs opencv-headless compile on Alpine.
+ *
+ * FFmpeg flow:
+ *   1. ffprobe → total duration
+ *   2. ffmpeg -filter:v "select='gt(scene,0.4)',showinfo" → stderr emits
+ *      pts_time markers at each scene change above threshold 0.4
+ *   3. Parse pts_time → SceneBoundary[]
  */
 async function stage2DetectScenes(workDir: string, ctx: PipelineContext): Promise<SceneBoundary[]> {
-	ctx.logger.info({ jobId: ctx.jobId }, "stage 2 — PySceneDetect");
+	ctx.logger.info({ jobId: ctx.jobId }, "stage 2 — FFmpeg scene detection");
 	const videoPath = join(workDir, "video.mp4");
-	const csvPath = join(workDir, "scenes.csv");
 
-	// scenedetect detect-content --threshold 27 list-scenes --filename ...
-	await runCmd(
-		"scenedetect",
+	// Probe total duration first
+	const probe = await runCmd(
+		"ffprobe",
 		[
-			"-i", videoPath,
-			"--output", workDir,
-			"detect-content",
-			"--threshold", "27",
-			"list-scenes",
-			"--filename", "scenes",
+			"-v", "error",
+			"-show_entries", "format=duration",
+			"-of", "default=noprint_wrappers=1:nokey=1",
+			videoPath,
 		],
 		undefined,
-		120_000,
+		30_000,
 	);
+	const totalDuration = parseFloat(probe.stdout.trim()) || 30;
 
-	// Parse CSV: Scene Number,Start Frame,Start Timecode,Start Time (seconds),End Frame,End Timecode,End Time (seconds),Length (frames),Length (timecode),Length (seconds)
-	const csv = await readFile(csvPath, "utf-8").catch(() => "");
-	const lines = csv.split("\n").slice(2).filter((l) => l.trim());
-	const scenes: SceneBoundary[] = lines.map((line, i) => {
-		const cols = line.split(",");
-		const startSec = parseFloat(cols[3] ?? "0");
-		const endSec = parseFloat(cols[6] ?? "0");
+	// Run scene detection — output goes to stderr.
+	let sceneStderr = "";
+	try {
+		const result = await runCmd(
+			"ffmpeg",
+			[
+				"-i", videoPath,
+				"-filter:v", "select='gt(scene,0.4)',showinfo",
+				"-f", "null",
+				"-",
+			],
+			undefined,
+			120_000,
+		);
+		sceneStderr = result.stderr;
+	} catch (err) {
+		ctx.logger.warn({ err: String(err) }, "ffmpeg scene detection raised — parsing partial stderr");
+	}
+
+	// Parse pts_time values from showinfo lines:
+	// [Parsed_showinfo_1 @ ...] n: 0 pts: 12345 pts_time:1.234 ...
+	const sceneTimes: number[] = [];
+	const regex = /pts_time:([0-9]+\.?[0-9]*)/g;
+	let m;
+	while ((m = regex.exec(sceneStderr)) !== null) {
+		const t = parseFloat(m[1] ?? "0");
+		if (!isNaN(t) && t > 0) sceneTimes.push(t);
+	}
+
+	// Always include scene-1 starting at 0
+	const starts = [0, ...sceneTimes];
+	const scenes: SceneBoundary[] = starts.map((startSec, i) => {
+		const endSec = starts[i + 1] ?? totalDuration;
 		return {
 			id: `scene-${i + 1}`,
 			order: i + 1,
 			startSec,
 			endSec,
-			durationSec: Math.max(0, endSec - startSec),
+			durationSec: Math.max(0.5, endSec - startSec),
 		};
 	});
-	ctx.logger.info({ sceneCount: scenes.length }, "stage 2 done");
+
+	ctx.logger.info({ sceneCount: scenes.length, totalDuration }, "stage 2 done");
 	return scenes;
 }
 
