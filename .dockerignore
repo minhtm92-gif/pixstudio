@@ -1,22 +1,76 @@
+# Dependencies
 node_modules
 **/node_modules
+
+# Next.js + Turbo build outputs
 .next
 **/.next
+.turbo
+**/.turbo
+.vercel
+**/.vercel
+out
+**/out
+
+# Rust + WASM build cache (produces files with funny modes on Windows)
+target
+**/target
+pkg
+**/pkg
+*.wasm
+
+# Git internals (esp. worktrees create symlinks Docker tar can't handle)
 .git
 .gitignore
-*.md
-.env*
-!.env.example
+.github
+
+# Test/coverage outputs
+coverage
+**/coverage
+*.log
+.DS_Store
+
+# IDE / OS
 .cursor
 .vscode
+.idea
+Thumbs.db
+
+# Docs / planning (not needed in image)
+*.md
+!apps/api/README.md
 diffs
 docs
 agent-transcripts
 mcps
 terminals
+references
+references/opencut
+_archive
+backups
+
+# Env files (use Fly secrets instead)
+.env*
+!.env.example
+
+# Web-specific build outputs apps/api doesn't need
 apps/web/.font-cache
+apps/web/.next
+apps/web/out
+apps/web/.open-next
+apps/web/public/_next
+
+# Workspaces sibling repos (worktrees + research clones)
+PXL-Desktop-C
+PXL-DA-research-phase1
+PXL2.0-research-phase1
+
+# Bun cache
+.bun
+**/.bun
+
+# Misc dist
 dist
 **/dist
-*.log
-.DS_Store
-references/opencut
+build
+**/build
