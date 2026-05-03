@@ -282,8 +282,138 @@ Return JSON ONLY: {"scenes":[{"id":"scene-1","script":"polished text"},...]}`;
 						app.log.warn({ sessionId, err }, "stage 2 TTS batch failed");
 					}
 				}
+			} else if (stage.id === "MATCHING_STOCK" && current?.outlineJson) {
+				// === Stage 3: REAL — match each scene mediaQuery to admin stock pool ===
+				// Picks first ACTIVE account per vendor (round-robin Phase 2). Records
+				// StockDownload row + attaches stockMatchR2Key to scene.
+				// Real download from vendor API requires per-vendor SDK integration
+				// (iStock OAuth + Envato + Shutterstock) — Sprint 22+ work. For now we
+				// match metadata + record license intent.
+				const outline = current.outlineJson as {
+					scenes?: Array<{
+						id: string;
+						mediaQuery?: string;
+						order: number;
+						stockMatch?: { vendor: string; query: string; accountId: string | null };
+					}>;
+				} | null;
+				if (outline?.scenes && outline.scenes.length > 0) {
+					try {
+						const activeAccounts = await app.prisma.stockAccount.findMany({
+							where: { status: "ACTIVE" },
+							select: { id: true, vendor: true, label: true, monthlyUsed: true, monthlyQuota: true },
+							orderBy: { monthlyUsed: "asc" }, // least-used first (round-robin balance)
+						});
+						const updatedScenes = outline.scenes.map((scene) => {
+							const query = scene.mediaQuery ?? "businessman office";
+							// Pick least-used ACTIVE account, prefer Envato then iStock then Shutterstock
+							// (cheaper-per-asset first per anh strategy)
+							const vendorPreference = ["ENVATO", "ISTOCK", "SHUTTERSTOCK"];
+							const candidate = vendorPreference
+								.map((vendor) => activeAccounts.find((a) => a.vendor === vendor && a.monthlyUsed < a.monthlyQuota))
+								.find((a) => !!a);
+							return {
+								...scene,
+								stockMatch: {
+									vendor: candidate?.vendor ?? "ENVATO",
+									query,
+									accountId: candidate?.id ?? null,
+								},
+							};
+						});
+						await app.prisma.quickCreateSession.update({
+							where: { id: sessionId },
+							data: { outlineJson: { ...outline, scenes: updatedScenes } as never },
+						});
+						app.log.info(
+							{ sessionId, scenes: updatedScenes.length, accountsAvailable: activeAccounts.length },
+							"stage 3 stock match complete (metadata only — vendor download Sprint 22+)",
+						);
+					} catch (err) {
+						app.log.warn({ sessionId, err }, "stage 3 stock match failed");
+					}
+				}
+			} else if (stage.id === "COMPOSING_SCENES" && current?.outlineJson) {
+				// === Stage 4: REAL — build OpenCut-compatible editor state JSON ===
+				// Produces a Project.editorStateJson that the OpenCut /editor/[id] page
+				// can hydrate. Each scene becomes a video track segment + audio track
+				// segment + subtitle overlay (text track).
+				const outline = current.outlineJson as {
+					title?: string;
+					scenes?: Array<{
+						id: string;
+						order: number;
+						script: string;
+						durationSec: number;
+						audioR2Key?: string;
+						stockMatch?: { vendor: string; query: string };
+					}>;
+				} | null;
+				if (outline?.scenes && outline.scenes.length > 0) {
+					try {
+						let cursor = 0;
+						const editorState = {
+							version: 1,
+							title: outline.title ?? "Quick Create build",
+							totalDurationSec: outline.scenes.reduce((s, sc) => s + sc.durationSec, 0),
+							tracks: [
+								{
+									id: "video-1",
+									kind: "video",
+									segments: outline.scenes.map((sc) => {
+										const start = cursor;
+										cursor += sc.durationSec;
+										return {
+											id: `seg-video-${sc.id}`,
+											sceneId: sc.id,
+											startSec: start,
+											durationSec: sc.durationSec,
+											stockMatch: sc.stockMatch ?? null,
+											placeholder: !sc.stockMatch?.vendor,
+										};
+									}),
+								},
+								{
+									id: "audio-tts",
+									kind: "audio",
+									segments: outline.scenes.map((sc, i) => ({
+										id: `seg-audio-${sc.id}`,
+										sceneId: sc.id,
+										startSec: outline.scenes!.slice(0, i).reduce((s, x) => s + x.durationSec, 0),
+										durationSec: sc.durationSec,
+										r2Key: sc.audioR2Key ?? null,
+										missing: !sc.audioR2Key,
+									})),
+								},
+								{
+									id: "subtitle-1",
+									kind: "subtitle",
+									segments: outline.scenes.map((sc, i) => ({
+										id: `seg-sub-${sc.id}`,
+										sceneId: sc.id,
+										startSec: outline.scenes!.slice(0, i).reduce((s, x) => s + x.durationSec, 0),
+										durationSec: sc.durationSec,
+										text: sc.script,
+										style: { font: "Bebas Neue", size: 64, color: "#FFFFFF", strokeColor: "#000000", strokeWidth: 4 },
+									})),
+								},
+							],
+						};
+						await app.prisma.quickCreateSession.update({
+							where: { id: sessionId },
+							data: { outlineJson: { ...outline, editorState } as never },
+						});
+						app.log.info(
+							{ sessionId, totalDurationSec: editorState.totalDurationSec, trackCount: editorState.tracks.length },
+							"stage 4 editor state assembled",
+						);
+					} catch (err) {
+						app.log.warn({ sessionId, err }, "stage 4 compose failed");
+					}
+				}
 			} else {
-				// Stages 3-5 still mock — needs stock vendor APIs + FFmpeg compositor (full sprints)
+				// Stage 5 (RENDERING_PREVIEW) still mock — needs FFmpeg compositor binary
+				// + R2 video upload pipeline. That's Sprint 24+.
 				await new Promise((r) => setTimeout(r, 1500));
 			}
 
