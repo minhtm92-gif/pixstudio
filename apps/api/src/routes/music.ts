@@ -10,7 +10,9 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireUser } from "../plugins/require-auth.js";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { requireUser, requireAdmin } from "../plugins/require-auth.js";
 import { MUSIC_TRACKS } from "../data/music-tracks.js";
 
 export const musicRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -57,6 +59,45 @@ export const musicRoutes: FastifyPluginAsyncZod = async (app) => {
 				return { error: "Track not found" };
 			}
 			return track;
+		},
+	});
+
+	// Admin: presign R2 PUT URL for music audio upload (Sprint 40).
+	// Track metadata is hardcoded in src/data/music-tracks.ts; admin uploads
+	// the actual MP3 file via this presigned URL. After upload, anh manually
+	// updates expectedR2Key → r2Key in the static catalog.
+	app.post("/admin/upload-presign", {
+		schema: {
+			body: z.object({
+				trackId: z.string(),
+				mimeType: z.enum(["audio/mpeg", "audio/mp3", "audio/wav"]),
+				sizeBytes: z.number().int().positive().max(10 * 1024 * 1024),
+			}),
+		},
+		handler: async (req, reply) => {
+			const user = await requireAdmin(app, req, reply);
+			if (!user) return;
+			if (!app.r2) {
+				reply.code(503);
+				return { error: "R2 not configured" };
+			}
+			const track = MUSIC_TRACKS.find((t) => t.id === req.body.trackId);
+			if (!track) {
+				reply.code(404);
+				return { error: "Track not in catalog" };
+			}
+			const r2Key = track.expectedR2Key;
+			const command = new PutObjectCommand({
+				Bucket: app.r2Buckets.uploads,
+				Key: r2Key,
+				ContentType: req.body.mimeType,
+				ContentLength: req.body.sizeBytes,
+			});
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const presignedUrl = await getSignedUrl(app.r2 as any, command as any, {
+				expiresIn: 600,
+			});
+			return { presignedUrl, r2Key, expiresInSec: 600 };
 		},
 	});
 };

@@ -46,6 +46,7 @@ const ADMIN_NAV_ITEMS = [
 	{ href: "/admin/kpi", label: "KPI Dashboard", icon: <BarChart3 className="h-4 w-4" /> },
 	{ href: "/admin/bug-reports", label: "Bug Reports", icon: <Bug className="h-4 w-4" /> },
 	{ href: "/admin/stock", label: "Stock Library", icon: <HardDrive className="h-4 w-4" /> },
+	{ href: "/admin/music", label: "Music Library", icon: <Mic className="h-4 w-4" /> },
 	{ href: "/admin/gpu", label: "AI Compute", icon: <Cpu className="h-4 w-4" /> },
 ];
 
