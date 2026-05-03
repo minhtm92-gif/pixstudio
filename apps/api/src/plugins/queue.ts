@@ -223,9 +223,67 @@ Return JSON ONLY: {"scenes":[{"id":"scene-1","script":"polished text"},...]}`;
 						);
 					}
 				}
+			} else if (stage.id === "SYNTHESIZING_VOICE" && current?.outlineJson && app.aiRouter && app.r2) {
+				// === Stage 2: REAL — ElevenLabs TTS per scene + R2 upload ===
+				const outline = current.outlineJson as {
+					scenes?: Array<{ id: string; script: string; order: number; audioR2Key?: string }>;
+				} | null;
+				const config = (await app.prisma.quickCreateSession.findUnique({
+					where: { id: sessionId },
+					select: { configOverrides: true },
+				}))?.configOverrides as { voiceId?: string } | null;
+				const voiceId = config?.voiceId ?? "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs default Vietnamese-capable voice (Rachel)
+				if (outline?.scenes && outline.scenes.length > 0) {
+					try {
+						const PutObjectCommand = (await import("@aws-sdk/client-s3")).PutObjectCommand;
+						const updatedScenes = await Promise.all(
+							outline.scenes.map(async (scene) => {
+								try {
+									const { result } = await app.aiRouter!.invoke(
+										"tts.synthesize" as never,
+										{
+											text: scene.script,
+											voiceId,
+											outputFormat: "mp3_44100_128",
+										} as never,
+										{ tier: "pro", workspaceId, userId } as never,
+									);
+									const out = (result as { output?: { audioBytes: ArrayBuffer } }).output;
+									const cost = (result as { costUsd?: number }).costUsd ?? 0;
+									totalCostUsd += cost;
+									if (!out?.audioBytes) return scene;
+									const r2Key = `tts/${sessionId}/${scene.id}.mp3`;
+									await app.r2!.send(
+										new PutObjectCommand({
+											Bucket: app.r2Buckets.uploads,
+											Key: r2Key,
+											Body: Buffer.from(out.audioBytes),
+											ContentType: "audio/mpeg",
+										}),
+									);
+									return { ...scene, audioR2Key: r2Key };
+								} catch (err) {
+									app.log.warn({ sessionId, sceneId: scene.id, err }, "TTS scene failed");
+									return scene;
+								}
+							}),
+						);
+						await app.prisma.quickCreateSession.update({
+							where: { id: sessionId },
+							data: {
+								outlineJson: { ...outline, scenes: updatedScenes } as never,
+							},
+						});
+						app.log.info(
+							{ sessionId, scenes: updatedScenes.length, withAudio: updatedScenes.filter((s) => s.audioR2Key).length },
+							"stage 2 TTS complete",
+						);
+					} catch (err) {
+						app.log.warn({ sessionId, err }, "stage 2 TTS batch failed");
+					}
+				}
 			} else {
-				// Stages 2-5 still mock — full real implementation Sprint 11+
-				// (ElevenLabs TTS quotas + stock vendor APIs + FFmpeg pipeline = full sprints)
+				// Stages 3-5 still mock — needs stock vendor APIs + FFmpeg compositor (full sprints)
 				await new Promise((r) => setTimeout(r, 1500));
 			}
 
