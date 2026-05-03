@@ -30,6 +30,18 @@ interface WorkspaceRow {
 	name: string;
 }
 
+interface MusicTrack {
+	id: string;
+	title: string;
+	artist: string;
+	mood: string;
+	genre: string;
+	durationSec: number;
+	bpm: number;
+	source: string;
+	tags: string[];
+}
+
 const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode; count: number }> = [
 	{ id: "video", label: "Video", icon: <Film className="h-4 w-4" />, count: 128 },
 	{ id: "image", label: "Image", icon: <ImageIcon className="h-4 w-4" />, count: 412 },
@@ -57,9 +69,21 @@ export function AssetStudioView({ user }: AssetStudioViewProps) {
 	const [_realAssets, setRealAssets] = useState<AssetRow[]>([]);
 	const [usingMock, setUsingMock] = useState(true);
 	const [loadError, setLoadError] = useState<string | null>(null);
+	const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
 
 	useEffect(() => {
 		const load = async () => {
+			// Music tab: fetch from /api/music (always loadable, no workspace needed for catalog)
+			if (tab === "music") {
+				try {
+					const data = await apiFetch<{ items: MusicTrack[] }>("/api/music");
+					setMusicTracks(data.items);
+					setLoadError(null);
+				} catch (err) {
+					setLoadError(err instanceof Error ? err.message : "Music API unreachable");
+				}
+				return;
+			}
 			try {
 				const ws = await apiFetch<{ items: WorkspaceRow[] }>("/api/workspaces");
 				const firstWs = ws.items[0];
@@ -243,22 +267,37 @@ export function AssetStudioView({ user }: AssetStudioViewProps) {
 						</div>
 					) : tab === "music" ? (
 						<div className="space-y-2">
-							{Array.from({ length: 12 }).map((_, i) => (
+							{musicTracks.length === 0 && !loadError && (
+								<div className="rounded-lg border border-dashed border-white/10 p-6 text-center text-sm text-white/50">
+									Loading music library…
+								</div>
+							)}
+							{musicTracks.map((track) => (
 								<div
-									key={i}
+									key={track.id}
 									className="flex items-center gap-3 rounded-lg border border-white/10 bg-zinc-900 p-3 hover:bg-zinc-800"
 								>
-									<button className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 hover:bg-[#3B82F6]/20">
+									<button
+										type="button"
+										className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 hover:bg-[#3B82F6]/20"
+										title="Play preview (audio R2 upload chưa wire)"
+									>
 										<MusicIcon className="h-4 w-4" />
 									</button>
-									<div className="flex-1">
-										<div className="text-sm font-medium text-white/87">Track {i + 1}</div>
+									<div className="flex-1 min-w-0">
+										<div className="truncate text-sm font-medium text-white/87">
+											{track.title}{" "}
+											<span className="text-[10px] text-white/40">— {track.artist}</span>
+										</div>
 										<div className="text-[11px] text-white/50">
-											{["FB Sound Collection", "TikTok CC", "YT Audio Library"][i % 3]} ·{" "}
-											{["Pop", "Lo-fi", "Cinematic"][i % 3]} · {120 + i * 5}s
+											{track.source.replace(/_/g, " ")} · {track.genre} · {track.mood} ·{" "}
+											{track.durationSec}s · {track.bpm} BPM
 										</div>
 									</div>
-									<button className="rounded border border-white/10 px-3 py-1 text-xs text-white/87 hover:bg-white/5">
+									<button
+										type="button"
+										className="rounded border border-white/10 px-3 py-1 text-xs text-white/87 hover:bg-white/5"
+									>
 										Use
 									</button>
 								</div>
