@@ -11,6 +11,11 @@ import { workflowRegistry, isCrossianRagEligible } from "@pixstudio/quick-create
 import type { Language } from "@pixstudio/quick-create";
 import { requireUser } from "../plugins/require-auth.js";
 import { runPathBPipeline, JobCancelledError } from "../services/path-b-pipeline.js";
+import {
+	buildPathBEditorState,
+	secondsToQuotaMinutes,
+} from "../services/path-b-editor-state.js";
+import { checkPathBQuota, incrementPathBMinutes } from "../services/tier-quota.js";
 
 const SessionIdParamsSchema = z.object({
 	sessionId: z.string().uuid(),
@@ -153,11 +158,25 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 				},
 			})) as SessionRow;
 
-			// Path B: create job row + auto-trigger pipeline async.
-			// Real pipeline orchestration (yt-dlp + FFmpeg scene detect + ElevenLabs
-			// Scribe + Replicate Demucs + Gemini visual) shipped Sprints 30-35.
+			// Path B: quota gate + create job row + auto-trigger pipeline async.
 			let pathBJobId: string | null = null;
 			if (req.body.mode === "pathB" && req.body.pathBVideoUrl) {
+				// Quota gate (D32): Standard 5min, Pro 30min, Max 120min /mo. We don't
+				// know exact source video length until yt-dlp downloads — gate on
+				// "any remaining minutes" (≥1) and increment with actual minutes after
+				// pipeline completes.
+				const quota = await checkPathBQuota(app.prisma, req.body.workspaceId, 1);
+				if (!quota.allowed) {
+					reply.code(429);
+					return {
+						error: "Path B quota exceeded for this month",
+						reason: quota.reason,
+						limit: quota.limit,
+						used: quota.used,
+						tier: quota.tier,
+					};
+				}
+
 				try {
 					const job = await app.prisma.reverseEngineerJob.create({
 						data: {
@@ -177,6 +196,7 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 
 					// Fire-and-forget pipeline. Status updates happen inside runPathBPipeline.
 					const sourceUrl = req.body.pathBVideoUrl;
+					const workspaceId = req.body.workspaceId;
 					void (async () => {
 						try {
 							const extraction = await runPathBPipeline({
@@ -188,60 +208,7 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 								r2Buckets: app.r2Buckets,
 								logger: app.log,
 							});
-							const totalDuration = extraction.scenes.reduce((s, sc) => s + sc.durationSec, 0);
-							const editorState = {
-								version: 1,
-								title: "Reverse engineered from reference",
-								totalDurationSec: totalDuration,
-								sourceVideoR2Key: extraction.videoR2Key,
-								tracks: [
-									{
-										id: "video-1",
-										kind: "video",
-										segments: extraction.scenes.map((sc) => {
-											const visual = extraction.visualAnalysis.find((v) => v.sceneId === sc.id);
-											return {
-												id: `seg-video-${sc.id}`,
-												sceneId: sc.id,
-												startSec: sc.startSec,
-												durationSec: sc.durationSec,
-												sourceTrim: { fromSec: sc.startSec, toSec: sc.endSec },
-												visualHint: visual ?? null,
-											};
-										}),
-									},
-									{
-										id: "audio-source",
-										kind: "audio",
-										segments: [
-											{
-												id: "seg-audio-source",
-												startSec: 0,
-												durationSec: totalDuration,
-												r2Key: extraction.audioR2Key,
-												stems: extraction.stems ?? null,
-											},
-										],
-									},
-									{
-										id: "subtitle-1",
-										kind: "subtitle",
-										segments: extraction.transcript.map((seg, i) => ({
-											id: `seg-sub-${i}`,
-											startSec: seg.start,
-											durationSec: Math.max(0, seg.end - seg.start),
-											text: seg.text,
-											style: { font: "Bebas Neue", size: 64, color: "#FFFFFF", strokeColor: "#000000", strokeWidth: 4 },
-										})),
-									},
-								],
-								extractionMeta: {
-									sceneCount: extraction.scenes.length,
-									transcriptSegments: extraction.transcript.length,
-									visualAnalyzed: extraction.visualAnalysis.length,
-									hasStems: !!extraction.stems,
-								},
-							};
+							const editorState = buildPathBEditorState(extraction);
 							await app.prisma.reverseEngineerJob.update({
 								where: { id: job.id },
 								data: {
@@ -251,7 +218,13 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 									outputEditorStateJson: editorState as never,
 								},
 							});
-							app.log.info({ jobId: job.id, scenes: extraction.scenes.length }, "path-b pipeline complete");
+							// Increment quota tracker with actual source video minutes.
+							const actualMinutes = secondsToQuotaMinutes(editorState.duration);
+							await incrementPathBMinutes(app.prisma, workspaceId, actualMinutes);
+							app.log.info(
+								{ jobId: job.id, scenes: extraction.scenes.length, minutes: actualMinutes },
+								"path-b pipeline complete",
+							);
 						} catch (err) {
 							if (err instanceof JobCancelledError) {
 								app.log.info({ jobId: job.id }, "path-b pipeline exited (cancelled)");
@@ -368,7 +341,7 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 				// Sprint 6 wires real pgvector similarity search.
 				const ragEligible = isCrossianRagEligible(workflow, language);
 				const crossianContext = ragEligible
-					? "\n[CROSSIAN PATTERNS — apply 5-act structure when crafting hook + script]\n" +
+					? "\n[PATTERN HINTS — apply 5-act structure when crafting hook + script]\n" +
 					  "Hook variants: emotional / identity / gift / problem-solution\n" +
 					  "Scene structure: Hook(0-3s) → Product Intro(3-7s) → Demo(7-15s) → Lifestyle(15-35s) → Social Proof+CTA(35-end)\n" +
 					  "Text overlay examples: '4-Way Stretch' | '50% OFF Today Only' | 'Join 100,000+ Happy Customers'\n"
@@ -409,7 +382,9 @@ Also suggest:
 - 1 platform chip (default ${platformChipDefault})
 
 Return JSON ONLY (no markdown fence) matching:
-{"title": string, "scenes": [{"id","order","script","mediaQuery","durationSec"}], "suggestedChips": {"audiences": string[], "lookFeel": string[], "platform": string}}`;
+{"title": string, "scenes": [{"id","order","script","mediaQuery","durationSec"}], "suggestedChips": {"audiences": string[], "lookFeel": string[], "platform": string}}
+
+IMPORTANT: Do NOT mention "Crossian", "PATTERN HINTS", "framework", "RAG", or any source labels in the output. The hints above are for your internal use only.`;
 
 				try {
 					const startedAt = Date.now();
@@ -713,8 +688,19 @@ Return JSON ONLY (no markdown fence) matching:
 				return { error: "Session mode is not PATH_B — recreate session with mode=pathB" };
 			}
 
-			// Tier gate: Path B Standard 5min/mo, Pro 30min/mo, Max 120min/mo (Q41).
-			// Sprint 6 wires real quota check via UsageTracker. v1 just create job.
+			// Tier gate: Path B Standard 5min/mo, Pro 30min/mo, Max 120min/mo (D32).
+			// Gate on remaining quota ≥ 1min — actual minutes incremented after pipeline.
+			const quota = await checkPathBQuota(app.prisma, session.workspaceId, 1);
+			if (!quota.allowed) {
+				reply.code(429);
+				return {
+					error: "Path B quota exceeded for this month",
+					reason: quota.reason,
+					limit: quota.limit,
+					used: quota.used,
+					tier: quota.tier,
+				};
+			}
 
 			// Idempotent: if a job already exists for this session, return existing.
 			const existing = await app.prisma.reverseEngineerJob.findUnique({

@@ -2,7 +2,7 @@
  * Asset Studio — 5 tab library + federated search.
  *
  * Per docs/preview/04-asset-studio.html.
- * Sources: Uploaded / Stock pool admin / AI gen / Crossian RAG (background)
+ * Sources: Uploaded / Stock pool admin / AI gen / Characters
  */
 
 "use client";
@@ -13,7 +13,7 @@ import { Sidebar } from "./sidebar";
 import { apiFetch, type PixStudioUser } from "@/lib/api-client";
 
 type Tab = "video" | "image" | "character" | "music" | "script";
-type SourceFilter = "all" | "uploaded" | "stock" | "ai-gen" | "crossian";
+type SourceFilter = "all" | "uploaded" | "stock" | "ai-gen";
 
 interface AssetRow {
 	id: string;
@@ -114,7 +114,7 @@ export function AssetStudioView({ user }: AssetStudioViewProps) {
 					<div className="mb-2 font-mono text-xs text-white/50">Home / Asset Studio</div>
 					<h1 className="font-serif text-3xl font-normal text-zinc-300">Asset Studio</h1>
 					<p className="mt-1.5 text-sm text-white/50">
-						5 thư viện gộp một nơi: stock + uploaded + AI gen + Crossian RAG. Quota:{" "}
+						5 thư viện gộp một nơi: stock + uploaded + AI gen + characters. Quota:{" "}
 						<strong className="text-white/87">
 							{user?.buildsUsed ?? 0}/{user?.buildsLimit === -1 ? "∞" : user?.buildsLimit ?? 0} video gen tháng này
 						</strong>{" "}

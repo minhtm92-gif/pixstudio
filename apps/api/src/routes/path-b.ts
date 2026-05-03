@@ -9,7 +9,12 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireUser, requireAdmin } from "../plugins/require-auth.js";
-import { runPathBPipeline, type PathBExtraction } from "../services/path-b-pipeline.js";
+import { runPathBPipeline } from "../services/path-b-pipeline.js";
+import {
+	buildPathBEditorState,
+	secondsToQuotaMinutes,
+} from "../services/path-b-editor-state.js";
+import { incrementPathBMinutes } from "../services/tier-quota.js";
 
 export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 	// Admin: list all ReverseEngineerJobs for monitoring queue (no auth-by-owner)
@@ -122,6 +127,7 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 			});
 
 			const sourceUrl = job.sourceUrl;
+			const workspaceId = job.workspaceId;
 			void (async () => {
 				try {
 					const extraction = await runPathBPipeline({
@@ -133,15 +139,21 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 						r2Buckets: app.r2Buckets,
 						logger: app.log,
 					});
+					const editorState = buildPathBEditorState(extraction);
 					await app.prisma.reverseEngineerJob.update({
 						where: { id: job.id },
 						data: {
 							status: "COMPLETED",
 							progress: 100,
 							completedAt: new Date(),
-							outputEditorStateJson: buildEditorStateFromExtraction(extraction) as never,
+							outputEditorStateJson: editorState as never,
 						},
 					});
+					await incrementPathBMinutes(
+						app.prisma,
+						workspaceId,
+						secondsToQuotaMinutes(editorState.duration),
+					);
 				} catch (err) {
 					app.log.error({ jobId: job.id, err }, "Path B pipeline failed");
 					await app.prisma.reverseEngineerJob.update({
@@ -258,48 +270,3 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 	});
 };
 
-function buildEditorStateFromExtraction(ext: PathBExtraction) {
-	const totalDuration = ext.scenes.reduce((s, sc) => s + sc.durationSec, 0);
-
-	// Map transcript segments to scenes by overlapping time range. Each scene
-	// gets the joined text of transcript segments that overlap its [startSec, endSec].
-	const scenes = ext.scenes.map((sc, idx) => {
-		const overlapping = ext.transcript.filter(
-			(t) => t.start < sc.endSec && t.end > sc.startSec,
-		);
-		const script = overlapping.map((t) => t.text).join(" ").trim();
-		const visual = ext.visualAnalysis.find((v) => v.sceneId === sc.id);
-		return {
-			id: sc.id,
-			order: idx + 1,
-			startSec: sc.startSec,
-			durationSec: sc.durationSec,
-			script,
-			mediaQuery: visual?.description ?? "",
-			mood: visual?.mood ?? null,
-			objects: visual?.objects ?? [],
-			sourceTrim: { fromSec: sc.startSec, toSec: sc.endSec },
-		};
-	});
-
-	return {
-		version: 1,
-		title: "Reverse engineered from reference",
-		duration: totalDuration,
-		sourceVideoR2Key: ext.videoR2Key,
-		timeline: {
-			scenes,
-			audio: {
-				r2Key: ext.audioR2Key,
-				stems: ext.stems ?? null,
-			},
-			duration: totalDuration,
-		},
-		extractionMeta: {
-			sceneCount: ext.scenes.length,
-			transcriptSegments: ext.transcript.length,
-			visualAnalyzed: ext.visualAnalysis.length,
-			hasStems: !!ext.stems,
-		},
-	};
-}

@@ -86,7 +86,7 @@ export class OutlineService {
 		if (isCrossianRagEligible(workflow, language)) {
 			const rag = await fetchCrossianRagContext(workflow, input.prompt);
 			if (rag) {
-				crossianContext = `\n\n[CROSSIAN PATTERNS — apply when crafting hook + script]\n` +
+				crossianContext = `\n\n[PATTERN HINTS — apply when crafting hook + script]\n` +
 					`Hook variants: ${rag.hookPatterns.join(" | ")}\n` +
 					`Scene structure: ${rag.sceneStructure}\n` +
 					`Text overlay examples: ${rag.textOverlayExamples.join(" | ")}\n`;
@@ -121,6 +121,8 @@ Return strict JSON matching this schema:
   "scenes": Array<{ "id": string, "order": number, "script": string, "mediaQuery": string, "durationSec": number }>,
   "suggestedChips": { "audiences": string[], "lookFeel": string[], "platform": string }
 }
+
+IMPORTANT: Do NOT mention "Crossian", "PATTERN HINTS", "framework", "RAG", or any source labels in the output. The hints above are for your internal use only.
 `.trim();
 	}
 
