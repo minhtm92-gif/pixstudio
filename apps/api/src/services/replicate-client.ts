@@ -124,14 +124,14 @@ export async function runDemucs(audioUrl: string): Promise<{
 	predictionId: string;
 	durationSec: number;
 }> {
-	// ryan5453/demucs version 7a9ab2... — htdemucs_ft model, ~$0.015/min audio.
-	// Update version hash from https://replicate.com/ryan5453/demucs if changes.
+	// ryan5453/demucs latest_version (verified 2026-05-03 via Replicate API).
+	// Schema: input.model (not model_name); stem="none" returns all 4 stems.
 	const result = await runReplicate<DemucsOutput>({
-		version: "7a9ab2c2c89e4d4a3f7fc38fcb4f50f0d9c12d5f3f4e3c3a2b1d0e5f6a7b8c9d",
+		version: "5a7041cc9b82e5a558fea6b3d7b12dea89625e89da33f0447bd727c2d0ab9e77",
 		input: {
 			audio: audioUrl,
-			model_name: "htdemucs_ft",
-			stem: "all", // returns all 4 stems
+			model: "htdemucs_ft",
+			stem: "none",
 			output_format: "mp3",
 		},
 		timeoutMs: 600_000, // 10min — long audio can take a while
@@ -151,9 +151,9 @@ export async function runRealEsrgan(
 	imageUrl: string,
 	scale: 2 | 4 = 2,
 ): Promise<{ output: string; predictionId: string; durationSec: number }> {
-	// nightmareai/real-esrgan - widely used model
+	// nightmareai/real-esrgan latest_version (verified 2026-05-03 via API)
 	const result = await runReplicate<string>({
-		version: "350d32041630ffbe63c8352783a26d94126809164e54085352f8326e53999085",
+		version: "b3ef194191d13140337468c916c2c5b96dd0cb06dffc032a022a31807f6a5ea8",
 		input: { image: imageUrl, scale, face_enhance: false },
 	});
 	return result;
@@ -196,10 +196,11 @@ export async function runSam2Segment(
 }
 
 /**
- * RIFE frame interpolation via Replicate — Sprint 45.
+ * Frame interpolation via zsxkib/st-mfnet — Sprint 45.
  *
- * Smooth motion: 24fps → 60fps (2.5x), 30fps → 60fps (2x), or arbitrary
- * factor up to 8x. Used for slow-motion enhancement + jitter smoothing.
+ * Smooth motion: 24fps → 60fps (2.5x), 30fps → 60fps (2x). ST-MFNet is the
+ * available video-input interpolation model on Replicate (RIFE itself doesn't
+ * have a maintained Replicate cog). Verified version 2026-05-03.
  *
  * Cost: ~$0.01 per second of input video. 30s clip ~$0.30.
  */
@@ -207,11 +208,10 @@ export async function runRifeInterpolation(
 	videoUrl: string,
 	multiplier: 2 | 4 | 8 = 2,
 ): Promise<{ output: string; predictionId: string; durationSec: number }> {
-	// pollinations/rife model
 	const result = await runReplicate<string>({
-		version: "30f13f1ea4f51e8b8a26bfc5d6b32e024e896d6abf4f8ac0c5bebc55f4ea5168",
+		version: "faa7693430b0a4ac95d1b8e25165673c1d7a7263537a7c4bb9be82a3e2d130fb",
 		input: {
-			video: videoUrl,
+			input_video: videoUrl,
 			interpolation_factor: multiplier,
 		},
 		timeoutMs: 900_000, // 15min for video processing
