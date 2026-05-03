@@ -7,12 +7,28 @@
 
 "use client";
 
-import { useState } from "react";
-import { Search, Upload, Sparkles, Film, Image as ImageIcon, User as UserIcon, Music as MusicIcon, FileText } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Search, Upload, Sparkles, Film, Image as ImageIcon, User as UserIcon, Music as MusicIcon, FileText, AlertCircle } from "lucide-react";
 import { Sidebar } from "./sidebar";
+import { apiFetch, type PixStudioUser } from "@/lib/api-client";
 
 type Tab = "video" | "image" | "character" | "music" | "script";
 type SourceFilter = "all" | "uploaded" | "stock" | "ai-gen" | "crossian";
+
+interface AssetRow {
+	id: string;
+	type: string;
+	source: string;
+	name: string;
+	mimeType: string;
+	durationMs: number | null;
+	createdAt: string;
+}
+
+interface WorkspaceRow {
+	id: string;
+	name: string;
+}
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode; count: number }> = [
 	{ id: "video", label: "Video", icon: <Film className="h-4 w-4" />, count: 128 },
@@ -23,18 +39,46 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode; count: number
 ];
 
 interface AssetStudioViewProps {
-	user?: {
-		name: string;
-		tier: "STANDARD" | "PRO" | "MAX";
-		buildsUsed: number;
-		buildsLimit: number;
-	};
+	user?: PixStudioUser;
 }
+
+const TAB_TO_ASSET_TYPE: Record<Tab, string> = {
+	video: "VIDEO",
+	image: "IMAGE",
+	character: "CHARACTER",
+	music: "MUSIC",
+	script: "SCRIPT",
+};
 
 export function AssetStudioView({ user }: AssetStudioViewProps) {
 	const [tab, setTab] = useState<Tab>("video");
 	const [source, setSource] = useState<SourceFilter>("all");
 	const [search, setSearch] = useState("");
+	const [realAssets, setRealAssets] = useState<AssetRow[]>([]);
+	const [usingMock, setUsingMock] = useState(true);
+	const [loadError, setLoadError] = useState<string | null>(null);
+
+	useEffect(() => {
+		const load = async () => {
+			try {
+				const ws = await apiFetch<{ items: WorkspaceRow[] }>("/api/workspaces");
+				const firstWs = ws.items[0];
+				if (!firstWs) {
+					setLoadError("Sign in to see your assets");
+					return;
+				}
+				const assetType = TAB_TO_ASSET_TYPE[tab];
+				const data = await apiFetch<{ items: AssetRow[] }>(
+					`/api/assets?workspaceId=${firstWs.id}&type=${assetType}&limit=60`,
+				);
+				setRealAssets(data.items);
+				setUsingMock(data.items.length === 0);
+			} catch (err) {
+				setLoadError(err instanceof Error ? err.message : "API unreachable");
+			}
+		};
+		void load();
+	}, [tab]);
 
 	return (
 		<div className="flex min-h-screen bg-black">
@@ -145,6 +189,18 @@ export function AssetStudioView({ user }: AssetStudioViewProps) {
 						✨ AI Generated
 					</button>
 				</div>
+
+				{/* Demo / error banners */}
+				{(usingMock || loadError) && (
+					<div className="mx-8 mb-3 flex items-center gap-2 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-300">
+						<AlertCircle className="h-3.5 w-3.5 shrink-0" />
+						{loadError ? (
+							<span>{loadError} — showing sample data preview.</span>
+						) : (
+							<span>Sample preview — upload assets hoặc tạo project để show your library.</span>
+						)}
+					</div>
+				)}
 
 				{/* Asset grid */}
 				<div className="px-8 pb-24">

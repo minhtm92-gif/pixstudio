@@ -198,22 +198,39 @@ export const assetsRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
-  // === GET / — list assets (filter by projectId) ===
+  // === GET / — list assets (filter by projectId OR workspaceId) ===
+  // Asset Studio uses workspaceId to show all assets across workspace projects.
   app.get("/", {
     schema: {
       querystring: z.object({
-        projectId: z.string(),
+        projectId: z.string().optional(),
+        workspaceId: z.string().optional(),
         type: AssetTypeSchema.optional(),
+        limit: z.coerce.number().int().min(1).max(200).default(50),
       }),
-      response: { 200: z.object({ items: z.array(AssetSchema) }) },
+      response: {
+        200: z.object({ items: z.array(AssetSchema) }),
+        400: z.object({ error: z.string() }),
+      },
     },
-    handler: async (req) => {
+    handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+
+      if (!req.query.projectId && !req.query.workspaceId) {
+        reply.code(400);
+        return { error: "projectId or workspaceId required" };
+      }
+
+      const where: { projectId?: string; project?: { workspaceId: string }; type?: z.infer<typeof AssetTypeSchema> } = {};
+      if (req.query.projectId) where.projectId = req.query.projectId;
+      if (req.query.workspaceId) where.project = { workspaceId: req.query.workspaceId };
+      if (req.query.type) where.type = req.query.type;
+
       const items = await app.prisma.asset.findMany({
-        where: {
-          projectId: req.query.projectId,
-          ...(req.query.type ? { type: req.query.type } : {}),
-        },
+        where,
         orderBy: { createdAt: "desc" },
+        take: req.query.limit,
       });
       return {
         items: items.map((a) => ({

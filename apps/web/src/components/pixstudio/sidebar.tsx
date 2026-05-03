@@ -10,39 +10,36 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, FolderOpen, Package, LayoutGrid, User, Settings } from "lucide-react";
+import type { PixStudioUser } from "@/lib/api-client";
 
 interface SidebarProps {
-	user?: {
-		name: string;
-		tier: "STANDARD" | "PRO" | "MAX";
-		buildsUsed: number;
-		buildsLimit: number;
-	};
+	user?: PixStudioUser;
 }
+
+const NAV_ITEMS = [
+	{ href: "/", label: "Home", icon: <Home className="h-4 w-4" /> },
+	{ href: "/projects", label: "Projects", icon: <FolderOpen className="h-4 w-4" /> },
+	{ href: "/assets", label: "Asset Studio", icon: <Package className="h-4 w-4" /> },
+	{ href: "/templates", label: "Templates", icon: <LayoutGrid className="h-4 w-4" /> },
+	{ href: "/account", label: "You", icon: <User className="h-4 w-4" /> },
+];
+
+const TIER_COLOR_MAP = {
+	STANDARD: "text-muted-foreground",
+	PRO: "text-blue-400",
+	MAX: "text-yellow-400",
+} as const;
 
 export function Sidebar({ user }: SidebarProps) {
 	const pathname = usePathname();
-
-	const navItems = [
-		{ href: "/", label: "Home", icon: <Home className="h-4 w-4" /> },
-		{ href: "/projects", label: "Projects", icon: <FolderOpen className="h-4 w-4" /> },
-		{ href: "/assets", label: "Asset Studio", icon: <Package className="h-4 w-4" /> },
-		{ href: "/templates", label: "Templates", icon: <LayoutGrid className="h-4 w-4" /> },
-		{ href: "/account", label: "You", icon: <User className="h-4 w-4" /> },
-	];
-
-	const tierColor = {
-		STANDARD: "text-muted-foreground",
-		PRO: "text-blue-400",
-		MAX: "text-yellow-400",
-	}[user?.tier ?? "STANDARD"];
+	const tierColor = TIER_COLOR_MAP[user?.tier ?? "STANDARD"];
 
 	const quotaPct = user
 		? Math.min(100, Math.round((user.buildsUsed / Math.max(1, user.buildsLimit)) * 100))
 		: 0;
 
 	return (
-		<aside className="flex h-screen w-[260px] shrink-0 flex-col border-r border-white/10 bg-[#0c0c0e]">
+		<aside className="sticky top-0 flex h-screen w-[260px] shrink-0 flex-col overflow-y-auto border-r border-white/10 bg-[#0c0c0e]">
 			<div className="px-3 pt-4">
 				{/* Logo */}
 				<Link href="/" className="mb-4 flex items-center gap-2.5 px-2 py-2">
@@ -57,7 +54,7 @@ export function Sidebar({ user }: SidebarProps) {
 
 				{/* Nav */}
 				<nav className="flex flex-col gap-0.5">
-					{navItems.map((item) => {
+					{NAV_ITEMS.map((item) => {
 						const active = pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href));
 						return (
 							<Link

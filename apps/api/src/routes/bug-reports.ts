@@ -13,7 +13,7 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireUser } from "../plugins/require-auth.js";
+import { requireUser, requireAdmin } from "../plugins/require-auth.js";
 
 const BugSeveritySchema = z.enum(["P0", "P1", "P2", "P3"]);
 const BugStatusSchema = z.enum(["OPEN", "IN_PROGRESS", "FIXED", "WONT_FIX", "DUPLICATE"]);
@@ -130,13 +130,13 @@ export const bugReportsRoutes: FastifyPluginAsyncZod = async (app) => {
 				return { error: "Bug report not found" };
 			}
 
-			// Reporter or admin can view
+			// Reporter or admin/mod can view
 			if (bug.reporterId !== user.id) {
 				const dbUser = await app.prisma.user.findUnique({
 					where: { id: user.id },
 					select: { systemRole: true },
 				});
-				if (!dbUser || (dbUser.systemRole !== "ADMIN" && dbUser.systemRole !== "MOD")) {
+				if (dbUser?.systemRole !== "ADMIN" && dbUser?.systemRole !== "MOD") {
 					reply.code(403);
 					return { error: "Not authorized" };
 				}
@@ -151,21 +151,6 @@ export const bugReportsRoutes: FastifyPluginAsyncZod = async (app) => {
  * Admin triage routes — registered separately under /api/admin/bug-reports.
  */
 export const adminBugReportsRoutes: FastifyPluginAsyncZod = async (app) => {
-	async function requireAdmin(req: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) {
-		const user = requireUser(req, reply);
-		if (!user) return null;
-		const dbUser = await app.prisma.user.findUnique({
-			where: { id: user.id },
-			select: { systemRole: true },
-		});
-		if (!dbUser || (dbUser.systemRole !== "ADMIN" && dbUser.systemRole !== "MOD")) {
-			reply.code(403);
-			void reply.send({ error: "Admin/Mod role required" });
-			return null;
-		}
-		return user;
-	}
-
 	// === GET /api/admin/bug-reports ===
 	app.get("/bug-reports", {
 		schema: {
@@ -176,7 +161,7 @@ export const adminBugReportsRoutes: FastifyPluginAsyncZod = async (app) => {
 			}),
 		},
 		handler: async (req, reply) => {
-			const user = await requireAdmin(req, reply);
+			const user = await requireAdmin(app, req, reply, { allowMod: true });
 			if (!user) return;
 
 			const where: Record<string, unknown> = {};
@@ -200,7 +185,7 @@ export const adminBugReportsRoutes: FastifyPluginAsyncZod = async (app) => {
 			body: TriageBodySchema,
 		},
 		handler: async (req, reply) => {
-			const user = await requireAdmin(req, reply);
+			const user = await requireAdmin(app, req, reply, { allowMod: true });
 			if (!user) return;
 
 			const updates: Record<string, unknown> = { ...req.body };

@@ -16,6 +16,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Send, Sparkles, ChevronRight, Image as ImageIcon, Music, Layout, User as UserIcon } from "lucide-react";
 import { Sidebar } from "./sidebar";
+import type { PixStudioUser } from "@/lib/api-client";
 
 type Mode = "pro" | "quick";
 type Section = "models" | "projects" | "trends" | "workflows" | "explore";
@@ -102,12 +103,7 @@ const FEATURED_CHIPS = [
 ];
 
 interface DashboardViewProps {
-	user?: {
-		name: string;
-		tier: "STANDARD" | "PRO" | "MAX";
-		buildsUsed: number;
-		buildsLimit: number;
-	};
+	user?: PixStudioUser;
 }
 
 export function DashboardView({ user }: DashboardViewProps) {

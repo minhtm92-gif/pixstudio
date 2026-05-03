@@ -16,7 +16,7 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireUser } from "../plugins/require-auth.js";
+import { requireAdmin } from "../plugins/require-auth.js";
 
 const StockVendorSchema = z.enum(["ISTOCK", "ENVATO", "SHUTTERSTOCK"]);
 const StockAccountStatusSchema = z.enum(["ACTIVE", "RATE_LIMITED", "EXPIRED", "DISABLED"]);
@@ -37,22 +37,6 @@ const UpdateAccountBodySchema = z.object({
 });
 
 export const adminStockRoutes: FastifyPluginAsyncZod = async (app) => {
-	// Auth helper — require systemRole = ADMIN
-	async function requireAdmin(req: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) {
-		const user = requireUser(req, reply);
-		if (!user) return null;
-		const dbUser = await app.prisma.user.findUnique({
-			where: { id: user.id },
-			select: { systemRole: true },
-		});
-		if (!dbUser || dbUser.systemRole !== "ADMIN") {
-			reply.code(403);
-			void reply.send({ error: "Admin role required" });
-			return null;
-		}
-		return user;
-	}
-
 	// === GET /stock-accounts ===
 	app.get("/stock-accounts", {
 		schema: {
@@ -62,7 +46,7 @@ export const adminStockRoutes: FastifyPluginAsyncZod = async (app) => {
 			}),
 		},
 		handler: async (req, reply) => {
-			const user = await requireAdmin(req, reply);
+			const user = await requireAdmin(app, req, reply);
 			if (!user) return;
 			const where: Record<string, unknown> = {};
 			if (req.query.vendor) where["vendor"] = req.query.vendor;
@@ -93,7 +77,7 @@ export const adminStockRoutes: FastifyPluginAsyncZod = async (app) => {
 	app.post("/stock-accounts", {
 		schema: { body: CreateAccountBodySchema },
 		handler: async (req, reply) => {
-			const user = await requireAdmin(req, reply);
+			const user = await requireAdmin(app, req, reply);
 			if (!user) return;
 			const account = await app.prisma.stockAccount.create({
 				data: req.body,
@@ -116,7 +100,7 @@ export const adminStockRoutes: FastifyPluginAsyncZod = async (app) => {
 			body: UpdateAccountBodySchema,
 		},
 		handler: async (req, reply) => {
-			const user = await requireAdmin(req, reply);
+			const user = await requireAdmin(app, req, reply);
 			if (!user) return;
 			const updated = await app.prisma.stockAccount.update({
 				where: { id: req.params.id },
@@ -136,7 +120,7 @@ export const adminStockRoutes: FastifyPluginAsyncZod = async (app) => {
 	app.delete("/stock-accounts/:id", {
 		schema: { params: z.object({ id: z.string().uuid() }) },
 		handler: async (req, reply) => {
-			const user = await requireAdmin(req, reply);
+			const user = await requireAdmin(app, req, reply);
 			if (!user) return;
 			// Soft-delete via status DISABLED; preserve history for audit.
 			await app.prisma.stockAccount.update({
@@ -151,7 +135,7 @@ export const adminStockRoutes: FastifyPluginAsyncZod = async (app) => {
 	app.get("/stock-accounts/:id/usage", {
 		schema: { params: z.object({ id: z.string().uuid() }) },
 		handler: async (req, reply) => {
-			const user = await requireAdmin(req, reply);
+			const user = await requireAdmin(app, req, reply);
 			if (!user) return;
 			const account = await app.prisma.stockAccount.findUnique({
 				where: { id: req.params.id },
@@ -202,7 +186,7 @@ export const adminStockRoutes: FastifyPluginAsyncZod = async (app) => {
 			}),
 		},
 		handler: async (req, reply) => {
-			const user = await requireAdmin(req, reply);
+			const user = await requireAdmin(app, req, reply);
 			if (!user) return;
 			const where: Record<string, unknown> = {};
 			if (req.query.workspaceId) where["workspaceId"] = req.query.workspaceId;

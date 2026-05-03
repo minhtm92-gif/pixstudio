@@ -12,9 +12,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { API_BASE } from "@/lib/api-client";
 
 const AUTO_SAVE_DEBOUNCE_MS = 30_000; // 30s per Sprint 3 spec
-const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "https://pixstudio-api.fly.dev";
 
 type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error" | "conflict";
 

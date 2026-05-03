@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SITE_URL } from "@/site/brand";
 import { DashboardView } from "../components/pixstudio/dashboard-view";
+import type { PixStudioUser } from "@/lib/api-client";
 
 export const metadata: Metadata = {
 	title: "PixStudio — Dashboard",
@@ -8,11 +9,11 @@ export const metadata: Metadata = {
 };
 
 export default async function Home() {
-	// Sprint 9 polish: fetch user from session cookie via server component
-	// v1: stub user for unauthenticated preview
-	const stubUser = {
-		name: "Anh Minh",
-		tier: "PRO" as const,
+	// Sprint 9 polish: fetch user from session cookie via server component.
+	// v1: stub demo user — alpha testers see "Demo Mode" badge in dashboard.
+	const stubUser: PixStudioUser = {
+		name: "Demo",
+		tier: "PRO",
 		buildsUsed: 0,
 		buildsLimit: 50,
 	};

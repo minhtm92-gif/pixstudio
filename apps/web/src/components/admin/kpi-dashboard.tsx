@@ -8,8 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { TrendingUp, DollarSign, Filter, Activity, AlertTriangle, CheckCircle2 } from "lucide-react";
-
-const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "https://pixstudio-api.fly.dev";
+import { apiFetch } from "@/lib/api-client";
 
 interface MigrationKpi {
 	windowDays: number;
@@ -56,14 +55,19 @@ export function KpiDashboard() {
 
 	useEffect(() => {
 		const fetchAll = async () => {
+			// Skip refetch when tab is backgrounded — avoids burning admin quota
+			// while the dashboard isn't visible.
+			if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+				return;
+			}
 			setLoading(true);
 			setError(null);
 			try {
 				const [m, c, f, h] = await Promise.all([
-					fetch(`${API_BASE}/api/admin/kpi/migration?days=7`, { credentials: "include" }).then((r) => r.json()),
-					fetch(`${API_BASE}/api/admin/kpi/cost?days=30`, { credentials: "include" }).then((r) => r.json()),
-					fetch(`${API_BASE}/api/admin/kpi/build-funnel?days=7`, { credentials: "include" }).then((r) => r.json()),
-					fetch(`${API_BASE}/api/admin/kpi/system-health`, { credentials: "include" }).then((r) => r.json()),
+					apiFetch<MigrationKpi>("/api/admin/kpi/migration?days=7"),
+					apiFetch<CostKpi>("/api/admin/kpi/cost?days=30"),
+					apiFetch<FunnelKpi>("/api/admin/kpi/build-funnel?days=7"),
+					apiFetch<SystemHealth>("/api/admin/kpi/system-health"),
 				]);
 				setMigration(m);
 				setCost(c);

@@ -74,4 +74,53 @@ export function requireUser(
 	return req.user;
 }
 
+export const WORKSPACE_ROLE_RANK = { VIEWER: 0, EDITOR: 1, OWNER: 2 } as const;
+export type WorkspaceRole = keyof typeof WORKSPACE_ROLE_RANK;
+
+/**
+ * Require systemRole = ADMIN (or MOD if allowMod). Sends 401/403 on failure.
+ * Returns null when the request must short-circuit, the user otherwise.
+ */
+export async function requireAdmin(
+	app: { prisma: { user: { findUnique: (args: { where: { id: string }; select: { systemRole: true } }) => Promise<{ systemRole: string } | null> } } },
+	req: FastifyRequest,
+	reply: FastifyReply,
+	opts: { allowMod?: boolean } = {},
+): Promise<{ id: string; email: string } | null> {
+	const user = requireUser(req, reply);
+	if (!user) return null;
+	const dbUser = await app.prisma.user.findUnique({
+		where: { id: user.id },
+		select: { systemRole: true },
+	});
+	const allowed = dbUser?.systemRole === "ADMIN" || (opts.allowMod && dbUser?.systemRole === "MOD");
+	if (!allowed) {
+		reply.code(403).send({
+			error: opts.allowMod ? "Admin/Mod role required" : "Admin role required",
+		});
+		return null;
+	}
+	return user;
+}
+
+/**
+ * Require caller is workspace member with at least minRole. Returns the member
+ * row when authorized, null otherwise (does NOT send a response — caller decides
+ * 403 vs custom error shape).
+ */
+export async function requireWorkspaceMember(
+	app: { prisma: { workspaceMember: { findUnique: (args: { where: { workspaceId_userId: { workspaceId: string; userId: string } } }) => Promise<{ role: string } | null> } } },
+	workspaceId: string,
+	userId: string,
+	minRole: WorkspaceRole = "VIEWER",
+): Promise<{ role: string } | null> {
+	const member = await app.prisma.workspaceMember.findUnique({
+		where: { workspaceId_userId: { workspaceId, userId } },
+	});
+	if (!member) return null;
+	const memberRank = WORKSPACE_ROLE_RANK[member.role as WorkspaceRole] ?? -1;
+	if (memberRank < WORKSPACE_ROLE_RANK[minRole]) return null;
+	return member;
+}
+
 export default fp(requireAuthImpl, { name: "require-auth", dependencies: ["auth"] });
