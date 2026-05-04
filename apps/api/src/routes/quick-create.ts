@@ -23,6 +23,7 @@ import {
 	incrementBuildCount,
 	incrementPathBMinutes,
 } from "../services/tier-quota.js";
+import { enrichHeroAttachments } from "../services/hero-attachment-enrichment.js";
 
 const SessionIdParamsSchema = z.object({
 	sessionId: z.string().uuid(),
@@ -503,6 +504,25 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 					  "Text overlay examples: '4-Way Stretch' | '50% OFF Today Only' | 'Join 100,000+ Happy Customers'\n"
 					: "";
 
+				// S14: enrich prompt with Hero attachments (QC-4) — Gemini vision
+				// describe for images, pdf-parse text for PDFs. Empty string when
+				// no attachments OR all enrichments fail (graceful degrade).
+				const sessionConfig =
+					(session.configOverrides as Record<string, unknown> | null) ?? {};
+				const heroAttachments = Array.isArray(sessionConfig.heroAttachments)
+					? (sessionConfig.heroAttachments as Array<{ r2Key?: string }>)
+					: [];
+				const attachmentsContext =
+					heroAttachments.length > 0
+						? await enrichHeroAttachments({
+								r2: app.r2 ?? null,
+								bucketName: app.r2Buckets.uploads,
+								attachments: heroAttachments
+									.filter((a): a is { r2Key: string } => typeof a.r2Key === "string")
+									.map((a) => ({ r2Key: a.r2Key })),
+							})
+						: "";
+
 				const platformChipDefault =
 					workflow.platform.ratio === "9:16"
 						? "tiktok"
@@ -522,7 +542,7 @@ Default language: ${language}
 Pace: ${workflow.pace}
 Total duration: ${totalSec}s
 Platform: ${workflow.platform.ratio} ratio
-${crossianContext}
+${crossianContext}${attachmentsContext}
 Generate exactly ${sceneCount} scenes that sum to ${totalSec}s ±5%.
 
 Each scene must have:
