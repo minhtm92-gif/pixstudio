@@ -37,24 +37,23 @@ export interface QuickCreateBuildJobReturn {
 }
 
 const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
-	// Upstash Redis: prefer REST URL when set, fallback to traditional Redis URL.
+	// BullMQ requires Redis protocol (redis:// or rediss://). The Upstash REST
+	// URL is HTTPS-based and incompatible. Prefer REDIS_URL first; fall back to
+	// UPSTASH_REDIS_REST_URL only if it happens to be a Redis-protocol URL.
 	const redisUrl =
-		process.env["UPSTASH_REDIS_REST_URL"] ?? process.env["REDIS_URL"];
+		process.env["REDIS_URL"] ?? process.env["UPSTASH_REDIS_REST_URL"];
 	if (!redisUrl) {
-		app.log.warn("UPSTASH_REDIS_REST_URL not set — BullMQ queue disabled");
+		app.log.warn("REDIS_URL not set — BullMQ queue disabled");
 		return;
 	}
 
-	// IORedis prefers redis:// or rediss:// URL. Upstash REST URL doesn't work
-	// for BullMQ — anh need either direct Upstash Redis URL (rediss://) or
-	// local Redis instance. Sprint 2.5 polish: detect URL type + warn.
 	let redis: IORedis;
 	if (redisUrl.startsWith("redis://") || redisUrl.startsWith("rediss://")) {
 		redis = new IORedis(redisUrl, { maxRetriesPerRequest: null });
 	} else {
 		app.log.warn(
-			"UPSTASH_REDIS_REST_URL is REST not Redis protocol — BullMQ disabled. " +
-				"Set REDIS_URL to a rediss://... endpoint cho BullMQ to work.",
+			"REDIS_URL is not a Redis-protocol URL (must start with redis:// or rediss://). " +
+				"Set REDIS_URL to a rediss://default:<pw>@<host>:<port> endpoint cho BullMQ to work.",
 		);
 		return;
 	}
