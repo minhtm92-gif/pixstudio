@@ -26,7 +26,10 @@ export async function apiFetch<T = unknown>(
 		headers.set("Content-Type", "application/json");
 	}
 	const controller = new AbortController();
-	const timeoutMs = (init as RequestInit & { timeoutMs?: number }).timeoutMs ?? 10_000;
+	// Default 30s — outline LLM via DO Inference takes 9-15s typically, sometimes
+	// longer for VN Sonnet 4 with 1500 maxTokens. Anh asked for 10s default
+	// originally but live tests show outline endpoint hits 12s frequently.
+	const timeoutMs = (init as RequestInit & { timeoutMs?: number }).timeoutMs ?? 30_000;
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	let res: Response;
 	try {
