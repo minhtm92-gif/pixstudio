@@ -8,6 +8,8 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireUser, requireAdmin } from "../plugins/require-auth.js";
 import { runPathBPipeline } from "../services/path-b-pipeline.js";
 import {
@@ -17,6 +19,54 @@ import {
 import { incrementPathBMinutes } from "../services/tier-quota.js";
 
 export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
+	// POST /source-uploads/presign — Path B manual MP4 upload (SCOPE §13 D37
+	// "drag-drop MP4 hoặc URL"). Returns R2 presigned PUT URL. Frontend uploads
+	// directly, then submits POST /api/quick-create/sessions with
+	// pathBSourceR2Key. Pipeline Stage 1 detects r2:// prefix and skips yt-dlp.
+	app.post("/source-uploads/presign", {
+		schema: {
+			body: z.object({
+				workspaceId: z.string().uuid(),
+				filename: z.string().min(1).max(200),
+				mimeType: z.enum([
+					"video/mp4",
+					"video/quicktime",
+					"video/x-matroska",
+					"video/webm",
+				]),
+				sizeBytes: z.number().int().positive().max(500 * 1024 * 1024),
+			}),
+		},
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			if (!app.r2) {
+				reply.code(503);
+				return { error: "R2 not configured" };
+			}
+			const safeName = req.body.filename
+				.slice(-60)
+				.replace(/[^a-zA-Z0-9.-]/g, "_");
+			const r2Key = `path-b/source-uploads/${req.body.workspaceId}/${Date.now()}-${safeName}`;
+			const command = new PutObjectCommand({
+				Bucket: app.r2Buckets.uploads,
+				Key: r2Key,
+				ContentType: req.body.mimeType,
+				ContentLength: req.body.sizeBytes,
+			});
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const presignedUrl = await getSignedUrl(app.r2 as any, command as any, {
+				expiresIn: 1200, // 20 min — large videos take longer to upload
+			});
+			req.log.info(
+				{ userId: user.id, workspaceId: req.body.workspaceId, sizeBytes: req.body.sizeBytes },
+				"path-b source-upload presign issued",
+			);
+			return { presignedUrl, r2Key, expiresInSec: 1200 };
+		},
+	});
+
+
 	// Admin: list all ReverseEngineerJobs for monitoring queue (no auth-by-owner)
 	app.get("/admin/jobs", {
 		schema: {

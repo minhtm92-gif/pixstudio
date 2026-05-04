@@ -153,6 +153,17 @@ export function DashboardView({ user }: DashboardViewProps) {
 	const [attachmentBusy, setAttachmentBusy] = useState(false);
 	const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
+	// Path B (SCOPE §13 D37): manual MP4 upload alternative to URL paste.
+	// Per scope "drag-drop MP4 hoặc URL YouTube/TikTok/Reel" — both must work.
+	const pathBFileInputRef = useRef<HTMLInputElement | null>(null);
+	const [pathBFile, setPathBFile] = useState<{
+		name: string;
+		r2Key: string;
+		sizeBytes: number;
+	} | null>(null);
+	const [pathBFileBusy, setPathBFileBusy] = useState(false);
+	const [pathBFileDragging, setPathBFileDragging] = useState(false);
+
 	const urlValid = VIDEO_URL_PATTERN.test(videoUrl.trim());
 
 	const handleAttachClick = () => fileInputRef.current?.click();
@@ -227,6 +238,78 @@ export function DashboardView({ user }: DashboardViewProps) {
 	const removeAttachment = (id: string) =>
 		setAttachments((prev) => prev.filter((a) => a.id !== id));
 
+	const PATH_B_MAX_BYTES = 500 * 1024 * 1024; // 500 MB
+	const PATH_B_ACCEPT_MIME = "video/mp4,video/quicktime,video/x-matroska,video/webm";
+
+	const handlePathBFile = async (file: File) => {
+		setPathBError(null);
+		setPathBInfo(null);
+		if (!file.type.startsWith("video/")) {
+			setPathBError("Chỉ hỗ trợ video (MP4, MOV, MKV, WebM)");
+			return;
+		}
+		if (file.size > PATH_B_MAX_BYTES) {
+			setPathBError(`Video quá lớn (max 500MB) — file của anh ${(file.size / 1024 / 1024).toFixed(1)}MB`);
+			return;
+		}
+		setPathBFileBusy(true);
+		try {
+			const ws = await apiFetch<{ items: WorkspaceRow[] }>("/api/workspaces");
+			const firstWs = ws.items[0];
+			if (!firstWs) {
+				router.push(`/login?next=${encodeURIComponent("/")}`);
+				return;
+			}
+			const presign = await apiFetch<{ presignedUrl: string; r2Key: string }>(
+				`/api/path-b/source-uploads/presign`,
+				{
+					method: "POST",
+					body: JSON.stringify({
+						workspaceId: firstWs.id,
+						filename: file.name,
+						mimeType: file.type,
+						sizeBytes: file.size,
+					}),
+				},
+			);
+			const putRes = await fetch(presign.presignedUrl, {
+				method: "PUT",
+				body: file,
+				headers: { "Content-Type": file.type },
+			});
+			if (!putRes.ok) throw new Error(`R2 PUT ${putRes.status}`);
+			setPathBFile({
+				name: file.name,
+				r2Key: presign.r2Key,
+				sizeBytes: file.size,
+			});
+			// Clear URL field — file takes priority.
+			setVideoUrl("");
+		} catch (err) {
+			setPathBError(err instanceof Error ? err.message : "Upload failed");
+		} finally {
+			setPathBFileBusy(false);
+		}
+	};
+
+	const handlePathBFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (e.target.value) e.target.value = "";
+		if (file) void handlePathBFile(file);
+	};
+
+	const handlePathBDrop = (e: React.DragEvent) => {
+		e.preventDefault();
+		setPathBFileDragging(false);
+		const file = e.dataTransfer.files[0];
+		if (file) void handlePathBFile(file);
+	};
+
+	const removePathBFile = () => {
+		setPathBFile(null);
+		setPathBError(null);
+	};
+
 	const handleSubmit = async () => {
 		setPathBError(null);
 		setPathBInfo(null);
@@ -248,9 +331,13 @@ export function DashboardView({ user }: DashboardViewProps) {
 			return;
 		}
 
-		// Path B — paste video URL → POST session + show status
-		if (!urlValid) {
-			setPathBError("URL phải là YouTube / TikTok / Instagram Reel / Vimeo");
+		// Path B — paste video URL OR uploaded file → POST session + show status
+		const hasFile = pathBFile !== null;
+		const hasUrl = urlValid;
+		if (!hasFile && !hasUrl) {
+			setPathBError(
+				"Cần một trong hai: paste URL (YouTube/TikTok/Reel/Vimeo) HOẶC upload file MP4",
+			);
 			return;
 		}
 		setSubmitting(true);
@@ -267,7 +354,9 @@ export function DashboardView({ user }: DashboardViewProps) {
 					workspaceId: firstWs.id,
 					mode: "pathB",
 					prompt: "",
-					pathBVideoUrl: videoUrl.trim(),
+					...(hasFile
+						? { pathBSourceR2Key: pathBFile.r2Key }
+						: { pathBVideoUrl: videoUrl.trim() }),
 				}),
 			});
 			if (session.pathBJobId) {
@@ -476,43 +565,113 @@ export function DashboardView({ user }: DashboardViewProps) {
 							)}
 						</div>
 					) : (
-						<div className="mb-5 space-y-3 rounded-xl border-2 border-dashed border-white/10 bg-zinc-900/40 p-6">
+						<div
+							className={`mb-5 space-y-3 rounded-xl border-2 border-dashed bg-zinc-900/40 p-6 transition-colors ${
+								pathBFileDragging
+									? "border-[#3B82F6] bg-[#3B82F6]/10"
+									: "border-white/10"
+							}`}
+							onDragOver={(e) => {
+								e.preventDefault();
+								if (!pathBFileBusy) setPathBFileDragging(true);
+							}}
+							onDragLeave={(e) => {
+								e.preventDefault();
+								setPathBFileDragging(false);
+							}}
+							onDrop={handlePathBDrop}
+						>
 							<div className="flex items-center gap-3 text-white/60">
 								<Video className="h-5 w-5 shrink-0" />
 								<div>
 									<div className="text-sm font-medium text-white/87">
-										Paste URL video tham khảo
+										Video tham khảo — paste URL HOẶC upload file
 									</div>
 									<div className="text-[11px] text-white/50">
-										YouTube · TikTok · Instagram Reel · Vimeo. Em phân tích cảnh + âm
-										thanh + script + rebuild với assets của anh.
+										YouTube · TikTok · Instagram Reel · Vimeo HOẶC drag-drop / chọn MP4
+										(max 500MB). Em phân tích cảnh + âm thanh + script + rebuild với
+										assets của anh.
 									</div>
 								</div>
 							</div>
-							<div className="flex gap-2">
-								<input
-									type="url"
-									value={videoUrl}
-									onChange={(e) => setVideoUrl(e.target.value)}
-									placeholder="https://www.youtube.com/watch?v=..."
-									disabled={submitting}
-									className="flex-1 rounded-md border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white/87 placeholder-white/30 focus:border-[#3B82F6] focus:outline-none disabled:opacity-50"
-								/>
+
+							{/* Uploaded file chip */}
+							{pathBFile && (
+								<div className="flex items-center gap-2 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm">
+									<Video className="h-4 w-4 text-green-400 shrink-0" />
+									<div className="min-w-0 flex-1">
+										<div className="truncate text-white/87">{pathBFile.name}</div>
+										<div className="text-[10px] text-white/50">
+											{(pathBFile.sizeBytes / 1024 / 1024).toFixed(1)}MB · uploaded ✓
+										</div>
+									</div>
+									<button
+										type="button"
+										onClick={removePathBFile}
+										disabled={submitting}
+										className="text-white/50 hover:text-white"
+										title="Remove"
+									>
+										<X className="h-4 w-4" />
+									</button>
+								</div>
+							)}
+
+							{/* URL input + file picker + submit */}
+							{!pathBFile && (
+								<>
+									<div className="flex gap-2">
+										<input
+											type="url"
+											value={videoUrl}
+											onChange={(e) => setVideoUrl(e.target.value)}
+											placeholder="https://www.youtube.com/watch?v=..."
+											disabled={submitting || pathBFileBusy}
+											className="flex-1 rounded-md border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white/87 placeholder-white/30 focus:border-[#3B82F6] focus:outline-none disabled:opacity-50"
+										/>
+										<button
+											type="button"
+											onClick={() => pathBFileInputRef.current?.click()}
+											disabled={pathBFileBusy || submitting}
+											className="flex items-center gap-1.5 rounded-md border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white/87 hover:bg-zinc-700 disabled:opacity-50"
+											title="Upload MP4 từ máy (drag-drop into khung này cũng work)"
+										>
+											{pathBFileBusy ? (
+												<Loader2 className="h-3.5 w-3.5 animate-spin" />
+											) : (
+												<Plus className="h-3.5 w-3.5" />
+											)}
+											{pathBFileBusy ? "Uploading..." : "Upload file"}
+										</button>
+										<input
+											ref={pathBFileInputRef}
+											type="file"
+											accept={PATH_B_ACCEPT_MIME}
+											onChange={handlePathBFilePicked}
+											className="hidden"
+										/>
+									</div>
+									{videoUrl.trim().length > 0 && !urlValid && (
+										<div className="text-[11px] text-orange-400">
+											URL phải bắt đầu bằng youtube.com / youtu.be / tiktok.com /
+											instagram.com/reel / vimeo.com
+										</div>
+									)}
+								</>
+							)}
+
+							{/* Phân tích button — visible when URL OR file ready */}
+							{(pathBFile || urlValid) && (
 								<button
 									type="button"
 									onClick={() => void handleSubmit()}
-									disabled={!urlValid || submitting}
-									className="flex items-center gap-1.5 rounded-md bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-[#3B82F6]/90 disabled:opacity-50"
+									disabled={submitting}
+									className="flex w-full items-center justify-center gap-1.5 rounded-md bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-[#3B82F6]/90 disabled:opacity-50"
 								>
-									{submitting ? "Đang xử lý..." : "Phân tích"}
+									{submitting ? "Đang xử lý..." : "Phân tích →"}
 								</button>
-							</div>
-							{videoUrl.trim().length > 0 && !urlValid && (
-								<div className="text-[11px] text-orange-400">
-									URL phải bắt đầu bằng youtube.com / youtu.be / tiktok.com /
-									instagram.com/reel / vimeo.com
-								</div>
 							)}
+
 							<div className="text-[11px] text-white/40">
 								Cost ~$0.07-0.10/phút · Quota: Standard 5min · Pro 30min · Max 120min
 							</div>

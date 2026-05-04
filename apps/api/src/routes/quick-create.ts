@@ -31,17 +31,25 @@ const CreateSessionBodySchema = z
 		workspaceId: z.string().uuid(),
 		prompt: z.string().max(25_000).default(""),
 		mode: z.enum(["pathA", "pathB"]).default("pathA"),
-		/** Required when mode=pathB. YouTube / TikTok / Reel / Vimeo URL. */
+		/** Path B: YouTube / TikTok / Reel / Vimeo URL (yt-dlp downloads). */
 		pathBVideoUrl: z
 			.string()
 			.regex(VIDEO_URL_PATTERN, "URL must be YouTube / TikTok / Instagram Reel / Vimeo")
 			.optional(),
+		/** Path B: R2 key from /source-uploads/presign (manual MP4 upload). */
+		pathBSourceR2Key: z.string().optional(),
 		/** Hero "+ button" attachments (QC-4) — R2 keys uploaded via /hero-attachments/presign. */
 		heroAttachmentR2Keys: z.array(z.string()).max(5).optional(),
 	})
 	.refine(
-		(body) => body.mode !== "pathB" || (body.pathBVideoUrl && body.pathBVideoUrl.length > 0),
-		{ message: "pathBVideoUrl required when mode=pathB", path: ["pathBVideoUrl"] },
+		(body) =>
+			body.mode !== "pathB" ||
+			(body.pathBVideoUrl && body.pathBVideoUrl.length > 0) ||
+			(body.pathBSourceR2Key && body.pathBSourceR2Key.length > 0),
+		{
+			message: "Path B requires either pathBVideoUrl or pathBSourceR2Key",
+			path: ["pathBVideoUrl"],
+		},
 	);
 
 const UpdateConfigBodySchema = z.object({
@@ -266,7 +274,10 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 
 			// Path B: quota gate + create job row + auto-trigger pipeline async.
 			let pathBJobId: string | null = null;
-			if (req.body.mode === "pathB" && req.body.pathBVideoUrl) {
+			if (
+				req.body.mode === "pathB" &&
+				(req.body.pathBVideoUrl || req.body.pathBSourceR2Key)
+			) {
 				// Quota gate (D32): Standard 5min, Pro 30min, Max 120min /mo. We don't
 				// know exact source video length until yt-dlp downloads — gate on
 				// "any remaining minutes" (≥1) and increment with actual minutes after
@@ -283,25 +294,31 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 					};
 				}
 
+				// sourceUrl convention: `https://...` for yt-dlp URL,
+				// `r2://<key>` for direct R2 upload (pipeline Stage 1 detects prefix).
+				const persistedSource = req.body.pathBSourceR2Key
+					? `r2://${req.body.pathBSourceR2Key}`
+					: req.body.pathBVideoUrl!;
+
 				try {
 					const job = await app.prisma.reverseEngineerJob.create({
 						data: {
 							sessionId: session.id,
 							userId: user.id,
 							workspaceId: req.body.workspaceId,
-							sourceUrl: req.body.pathBVideoUrl,
+							sourceUrl: persistedSource,
 							status: "DOWNLOADING",
 							progress: 1,
 						},
 					});
 					pathBJobId = job.id;
 					req.log.info(
-						{ sessionId: session.id, jobId: job.id, sourceUrl: req.body.pathBVideoUrl },
+						{ sessionId: session.id, jobId: job.id, sourceUrl: persistedSource },
 						"path-b job auto-trigger pipeline",
 					);
 
 					// Fire-and-forget pipeline. Status updates happen inside runPathBPipeline.
-					const sourceUrl = req.body.pathBVideoUrl;
+					const sourceUrl = persistedSource;
 					const workspaceId = req.body.workspaceId;
 					void (async () => {
 						try {

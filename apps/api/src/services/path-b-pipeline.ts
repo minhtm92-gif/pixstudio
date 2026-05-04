@@ -21,7 +21,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import type { S3Client } from "@aws-sdk/client-s3";
 import type { PrismaClient } from "@prisma/client";
 import { runDemucs } from "./replicate-client.js";
@@ -109,22 +109,48 @@ async function updateProgress(ctx: PipelineContext, progress: number, status?: s
 export { JobCancelledError };
 
 /**
- * Stage 1 — Download reference video via yt-dlp + extract audio via ffmpeg.
- * yt-dlp picks best mp4 + best m4a/aac audio. Extracted audio piped to mp3.
+ * Stage 1 — Acquire reference video + extract audio.
+ *
+ * sourceUrl conventions:
+ *   - `r2://<key>` — manual upload via /api/path-b/source-uploads/presign.
+ *     Skip yt-dlp; download directly from R2 uploads bucket.
+ *   - `https://...` (YouTube/TikTok/Reel/Vimeo) — yt-dlp downloads.
+ *
+ * Both paths converge on local video.mp4 + audio.mp3 → R2 derived bucket.
  */
 async function stage1Download(ctx: PipelineContext, workDir: string): Promise<{ videoR2Key: string; audioR2Key: string }> {
-	ctx.logger.info({ jobId: ctx.jobId, sourceUrl: ctx.sourceUrl }, "stage 1 — yt-dlp download");
-
 	const videoPath = join(workDir, "video.mp4");
 	const audioPath = join(workDir, "audio.mp3");
 
-	// yt-dlp: best mp4, force mp4 container
-	await runCmd(
-		"yt-dlp",
-		["-f", "best[ext=mp4]/best", "-o", videoPath, "--no-playlist", "--no-progress", ctx.sourceUrl],
-		undefined,
-		300_000,
-	);
+	if (ctx.sourceUrl.startsWith("r2://")) {
+		const r2Key = ctx.sourceUrl.slice("r2://".length);
+		ctx.logger.info({ jobId: ctx.jobId, r2Key }, "stage 1 — R2 download (manual upload)");
+		if (!ctx.r2) {
+			throw new Error("R2 client not configured — cannot download manual upload");
+		}
+		const obj = await ctx.r2.send(
+			new GetObjectCommand({ Bucket: ctx.r2Buckets.uploads, Key: r2Key }),
+		);
+		if (!obj.Body) throw new Error(`R2 object ${r2Key} has no body`);
+		// Stream R2 body → local file
+		const chunks: Uint8Array[] = [];
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		for await (const chunk of obj.Body as any) {
+			chunks.push(chunk as Uint8Array);
+		}
+		const buf = Buffer.concat(chunks);
+		await writeFile(videoPath, buf);
+		ctx.logger.info({ jobId: ctx.jobId, videoSize: buf.length }, "stage 1 R2 download done");
+	} else {
+		ctx.logger.info({ jobId: ctx.jobId, sourceUrl: ctx.sourceUrl }, "stage 1 — yt-dlp download");
+		// yt-dlp: best mp4, force mp4 container
+		await runCmd(
+			"yt-dlp",
+			["-f", "best[ext=mp4]/best", "-o", videoPath, "--no-playlist", "--no-progress", ctx.sourceUrl],
+			undefined,
+			300_000,
+		);
+	}
 
 	// ffmpeg: extract mp3 audio
 	await runCmd(
