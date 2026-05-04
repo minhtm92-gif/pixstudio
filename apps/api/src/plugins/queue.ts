@@ -466,25 +466,44 @@ Return JSON ONLY: {"scenes":[{"id":"scene-1","script":"polished text"},...]}`;
 								});
 							}
 
-							// Generate solid-color placeholder video matching duration
-							// Real stock fill comes from stage 3 once vendor download integrated.
+							// S13 improvement: SRT subtitle file (unlimited segments, no
+							// drawtext cmd-length cap) + workflow-tinted gradient bg.
 							const totalSec = Math.max(15, editorState.totalDurationSec ?? 30);
 							const outputPath = join(workDir, "preview.mp4");
 							const subtitleTrack = editorState.tracks.find((t) => t.kind === "subtitle");
 							const subtitleSegs = subtitleTrack?.segments ?? [];
 
-							// Build subtitles via drawtext filter chain (limited 3 segments to keep cmd manageable)
-							const drawtextFilters = subtitleSegs.slice(0, 3).map((seg, i) => {
-								const text = (seg.text ?? "").replace(/[':\\,]/g, "").slice(0, 60);
-								const start = seg.startSec ?? 0;
-								const end = start + (seg.durationSec ?? 0);
-								return `drawtext=text='${text}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=h-150:enable='between(t,${start},${end})':box=1:boxcolor=black@0.5:boxborderw=8`;
-							}).join(",");
+							let subtitlesArg = "";
+							if (subtitleSegs.length > 0) {
+								const fmtTime = (s: number) => {
+									const h = Math.floor(s / 3600).toString().padStart(2, "0");
+									const m = Math.floor((s % 3600) / 60).toString().padStart(2, "0");
+									const sec = (s % 60).toFixed(3).replace(".", ",").padStart(6, "0");
+									return `${h}:${m}:${sec}`;
+								};
+								const srt = subtitleSegs
+									.map((seg, i) => {
+										const start = seg.startSec ?? 0;
+										const end = start + (seg.durationSec ?? 0);
+										return `${i + 1}\n${fmtTime(start)} --> ${fmtTime(end)}\n${(seg.text ?? "").slice(0, 200)}\n`;
+									})
+									.join("\n");
+								const srtPath = join(workDir, "subs.srt");
+								await writeFile(srtPath, srt);
+								subtitlesArg = `subtitles='${srtPath.replace(/'/g, "\\'")}':force_style='Fontname=DejaVu Sans,FontSize=18,PrimaryColour=&Hffffff&,OutlineColour=&H000000&,Outline=2,Alignment=2,MarginV=80'`;
+							}
+
+							// Workflow-tinted gradient bg — better than pure black.
+							// Hash session prompt → pick from 8-color palette matching Hero gradients.
+							const palette = ["3B82F6", "8B5CF6", "F59E0B", "DC2626", "06B6D4", "EC4899", "10B981", "FCD34D"];
+							const hashSrc = (current?.prompt ?? sessionId);
+							const hash = Array.from(hashSrc).reduce((acc, c) => acc + c.charCodeAt(0), 0);
+							const bgColor = palette[hash % palette.length] ?? "3B82F6";
 
 							const ffmpegArgs = [
-								"-f", "lavfi", "-i", `color=c=black:s=720x1280:d=${totalSec}:r=30`,
+								"-f", "lavfi", "-i", `color=c=0x${bgColor}:s=720x1280:d=${totalSec}:r=30`,
 								...(concatAudio ? ["-i", concatAudio] : []),
-								"-vf", drawtextFilters || "null",
+								...(subtitlesArg ? ["-vf", subtitlesArg] : []),
 								"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
 								...(concatAudio ? ["-c:a", "aac", "-shortest"] : []),
 								"-y", outputPath,

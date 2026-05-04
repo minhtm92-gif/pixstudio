@@ -17,7 +17,12 @@ import {
 	buildPathBEditorState,
 	secondsToQuotaMinutes,
 } from "../services/path-b-editor-state.js";
-import { checkPathBQuota, incrementPathBMinutes } from "../services/tier-quota.js";
+import {
+	checkBuildQuota,
+	checkPathBQuota,
+	incrementBuildCount,
+	incrementPathBMinutes,
+} from "../services/tier-quota.js";
 
 const SessionIdParamsSchema = z.object({
 	sessionId: z.string().uuid(),
@@ -683,6 +688,19 @@ IMPORTANT: Do NOT mention "Crossian", "PATTERN HINTS", "framework", "RAG", or an
 				};
 			}
 
+			// Tier quota gate — Path A 10/50/200 builds/mo (S13 enforcement).
+			const quota = await checkBuildQuota(app.prisma, session.workspaceId);
+			if (!quota.allowed) {
+				reply.code(429);
+				return {
+					error: "Quick Create build quota exceeded for this month",
+					reason: quota.reason,
+					limit: quota.limit,
+					used: quota.used,
+					tier: quota.tier,
+				};
+			}
+
 			const job = await app.queues.quickCreateBuild.add("build", {
 				sessionId: session.id,
 				workspaceId: session.workspaceId,
@@ -693,6 +711,10 @@ IMPORTANT: Do NOT mention "Crossian", "PATTERN HINTS", "framework", "RAG", or an
 				where: { id: session.id },
 				data: { buildJobId: job.id, buildStatus: "PENDING" as never, buildProgress: 0 },
 			});
+
+			// Increment quota tracker now (best-effort — worker doesn't decrement
+			// on cancel/fail per current pattern, matches Path B behavior).
+			await incrementBuildCount(app.prisma, session.workspaceId);
 
 			reply.code(202);
 			return {
