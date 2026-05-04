@@ -138,16 +138,12 @@ export function createDoInferenceProvider(opts: {
       // Rough cost: Anthropic Sonnet 4 $3/1M input + $15/1M output
       const costUsd = (inputTokens * 3) / 1_000_000 + (outputTokens * 15) / 1_000_000;
 
-      // Deep logging when content is empty — helps diagnose finish_reason
-      // (length / content_filter / etc.) and shape of the choices array.
+      // Diagnostic: when content is empty, dump the raw response shape via
+      // process.stdout so it shows up alongside pino logs on Fly. The full
+      // `data` JSON is small enough to log entirely.
       if (!text || text.length === 0) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          "[do-inference] Empty response — model=%s choices=%s finish=%s usage=%o",
-          model,
-          data.choices?.length ?? 0,
-          data.choices?.[0]?.finish_reason ?? "none",
-          data.usage,
+        process.stdout.write(
+          `[do-inference] EMPTY_RESPONSE model=${model} raw=${JSON.stringify(data).slice(0, 1500)}\n`,
         );
       }
 
