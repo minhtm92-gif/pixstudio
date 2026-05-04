@@ -12,9 +12,9 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Send, Sparkles, ChevronRight, Image as ImageIcon, Music, Layout, User as UserIcon, Lightbulb, Video, Info } from "lucide-react";
+import { Plus, Send, Sparkles, ChevronRight, Image as ImageIcon, Music, Layout, User as UserIcon, Lightbulb, Video, Info, FileText, X, Loader2 } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { apiFetch, type PixStudioUser } from "@/lib/api-client";
 
@@ -35,6 +35,20 @@ interface SessionResponse {
 	pathBJobId?: string | null;
 	pathBVideoUrl?: string | null;
 }
+
+interface HeroAttachment {
+	id: string;
+	name: string;
+	type: "image" | "pdf" | "audio";
+	r2Key: string;
+	publicUrl: string | null;
+	sizeBytes: number;
+}
+
+const ATTACHMENT_ACCEPT_MIME =
+	"image/jpeg,image/png,image/webp,application/pdf,audio/mpeg,audio/wav,audio/mp4";
+
+const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
 
 const VENDORS = [
 	{
@@ -131,8 +145,87 @@ export function DashboardView({ user }: DashboardViewProps) {
 	const [submitting, setSubmitting] = useState(false);
 	const [pathBInfo, setPathBInfo] = useState<string | null>(null);
 	const [pathBError, setPathBError] = useState<string | null>(null);
+	// QC-4 (SCOPE §4.2): Hero "+ button" — attach reference materials.
+	// Phase 2 mandate: image (Gemini vision describe) + PDF (text extract).
+	// Audio: Phase 3 Max tier (voice clone). Video: route via Path B toggle, NOT here.
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const [attachments, setAttachments] = useState<HeroAttachment[]>([]);
+	const [attachmentBusy, setAttachmentBusy] = useState(false);
+	const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
 	const urlValid = VIDEO_URL_PATTERN.test(videoUrl.trim());
+
+	const handleAttachClick = () => fileInputRef.current?.click();
+
+	const handleFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		// Reset so the same file can be picked again after remove.
+		if (e.target.value) e.target.value = "";
+		if (!file) return;
+		setAttachmentError(null);
+		if (file.size > ATTACHMENT_MAX_BYTES) {
+			setAttachmentError(`File quá lớn (max 20MB) — file của anh ${(file.size / 1024 / 1024).toFixed(1)}MB`);
+			return;
+		}
+		const kind: HeroAttachment["type"] = file.type.startsWith("image/")
+			? "image"
+			: file.type === "application/pdf"
+				? "pdf"
+				: file.type.startsWith("audio/")
+					? "audio"
+					: (() => {
+							setAttachmentError("Chỉ hỗ trợ image (JPG/PNG/WebP), PDF, hoặc audio (MP3/WAV)");
+							return "image" as const;
+						})();
+		if (attachmentError) return;
+		setAttachmentBusy(true);
+		try {
+			const ws = await apiFetch<{ items: WorkspaceRow[] }>("/api/workspaces");
+			const firstWs = ws.items[0];
+			if (!firstWs) {
+				router.push(`/login?next=${encodeURIComponent("/")}`);
+				return;
+			}
+			const presign = await apiFetch<{
+				presignedUrl: string;
+				r2Key: string;
+				publicUrl: string | null;
+			}>(`/api/quick-create/hero-attachments/presign`, {
+				method: "POST",
+				body: JSON.stringify({
+					workspaceId: firstWs.id,
+					filename: file.name,
+					mimeType: file.type,
+					sizeBytes: file.size,
+					kind,
+				}),
+			});
+			const putRes = await fetch(presign.presignedUrl, {
+				method: "PUT",
+				body: file,
+				headers: { "Content-Type": file.type },
+			});
+			if (!putRes.ok) throw new Error(`R2 PUT ${putRes.status}`);
+			setAttachments((prev) => [
+				...prev,
+				{
+					id: presign.r2Key,
+					name: file.name,
+					type: kind,
+					r2Key: presign.r2Key,
+					publicUrl: presign.publicUrl,
+					sizeBytes: file.size,
+				},
+			]);
+		} catch (err) {
+			setAttachmentError(err instanceof Error ? err.message : "Upload failed");
+		} finally {
+			setAttachmentBusy(false);
+		}
+	};
+
+	const removeAttachment = (id: string) =>
+		setAttachments((prev) => prev.filter((a) => a.id !== id));
 
 	const handleSubmit = async () => {
 		setPathBError(null);
@@ -147,7 +240,11 @@ export function DashboardView({ user }: DashboardViewProps) {
 		// mode === "quick"
 		if (quickPath === "ideaA") {
 			if (!prompt.trim()) return;
-			router.push(`/quick-create/workflows?prompt=${encodeURIComponent(prompt)}`);
+			const params = new URLSearchParams({ prompt });
+			if (attachments.length > 0) {
+				params.set("attachments", attachments.map((a) => a.r2Key).join(","));
+			}
+			router.push(`/quick-create/workflows?${params.toString()}`);
 			return;
 		}
 
@@ -315,14 +412,55 @@ export function DashboardView({ user }: DashboardViewProps) {
 								}
 								className="min-h-[140px] w-full resize-y rounded-xl border border-white/10 bg-zinc-900 px-5 pb-14 pt-4.5 text-base text-white/87 placeholder-white/50 focus:border-[#3B82F6] focus:outline-none"
 							/>
+							{/* Attachment chips */}
+							{attachments.length > 0 && (
+								<div className="absolute bottom-14 left-3 right-3 flex flex-wrap gap-1.5">
+									{attachments.map((a) => (
+										<span
+											key={a.id}
+											className="flex items-center gap-1 rounded-full border border-white/10 bg-zinc-800 px-2 py-0.5 text-xs text-white/70"
+										>
+											{a.type === "image" ? (
+												<ImageIcon className="h-3 w-3 text-blue-400" />
+											) : a.type === "pdf" ? (
+												<FileText className="h-3 w-3 text-orange-400" />
+											) : (
+												<Music className="h-3 w-3 text-purple-400" />
+											)}
+											<span className="max-w-[140px] truncate">{a.name}</span>
+											<button
+												type="button"
+												onClick={() => removeAttachment(a.id)}
+												className="ml-0.5 text-white/50 hover:text-white"
+												title="Remove"
+											>
+												<X className="h-3 w-3" />
+											</button>
+										</span>
+									))}
+								</div>
+							)}
 							<div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
 								<button
 									type="button"
-									className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-white/50 hover:bg-white/5 hover:text-white"
-									title="Đính kèm file"
+									onClick={handleAttachClick}
+									disabled={attachmentBusy}
+									className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-white/50 hover:bg-white/5 hover:text-white disabled:opacity-50"
+									title="Đính kèm ảnh sản phẩm / PDF brief / audio sample (max 20MB)"
 								>
-									<Plus className="h-4 w-4" />
+									{attachmentBusy ? (
+										<Loader2 className="h-4 w-4 animate-spin" />
+									) : (
+										<Plus className="h-4 w-4" />
+									)}
 								</button>
+								<input
+									ref={fileInputRef}
+									type="file"
+									accept={ATTACHMENT_ACCEPT_MIME}
+									onChange={(e) => void handleFilePicked(e)}
+									className="hidden"
+								/>
 								<button
 									type="button"
 									onClick={() => void handleSubmit()}
@@ -333,6 +471,9 @@ export function DashboardView({ user }: DashboardViewProps) {
 									<Send className="h-4 w-4" />
 								</button>
 							</div>
+							{attachmentError && (
+								<p className="mt-2 text-xs text-orange-400">⚠ {attachmentError}</p>
+							)}
 						</div>
 					) : (
 						<div className="mb-5 space-y-3 rounded-xl border-2 border-dashed border-white/10 bg-zinc-900/40 p-6">

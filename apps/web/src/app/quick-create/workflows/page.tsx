@@ -187,6 +187,9 @@ function WorkflowsPageContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const promptFromHero = searchParams.get("prompt") ?? "";
+	const attachmentKeysFromHero = (searchParams.get("attachments") ?? "")
+		.split(",")
+		.filter(Boolean);
 
 	const [error, setError] = useState<string | null>(null);
 	const [creatingId, setCreatingId] = useState<string | null>(null);
@@ -208,6 +211,9 @@ function WorkflowsPageContent() {
 					workspaceId: firstWs.id,
 					mode: "pathA",
 					prompt: promptFromHero,
+					...(attachmentKeysFromHero.length > 0
+						? { heroAttachmentR2Keys: attachmentKeysFromHero }
+						: {}),
 				}),
 			});
 			startTransition(() => {

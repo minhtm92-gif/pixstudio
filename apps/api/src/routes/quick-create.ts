@@ -7,6 +7,8 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { workflowRegistry, isCrossianRagEligible } from "@pixstudio/quick-create";
 import type { Language } from "@pixstudio/quick-create";
 import { requireUser } from "../plugins/require-auth.js";
@@ -34,6 +36,8 @@ const CreateSessionBodySchema = z
 			.string()
 			.regex(VIDEO_URL_PATTERN, "URL must be YouTube / TikTok / Instagram Reel / Vimeo")
 			.optional(),
+		/** Hero "+ button" attachments (QC-4) — R2 keys uploaded via /hero-attachments/presign. */
+		heroAttachmentR2Keys: z.array(z.string()).max(5).optional(),
 	})
 	.refine(
 		(body) => body.mode !== "pathB" || (body.pathBVideoUrl && body.pathBVideoUrl.length > 0),
@@ -164,6 +168,68 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 		});
 	}
 
+	// ─── Hero attachments (QC-4) ───────────────────────────────────
+	// Per SCOPE §4.2 QC-4: Hero textarea "+ button" lets user attach reference
+	// materials. Phase 2: image (Gemini vision describe → enrich outline prompt)
+	// + PDF (text extract → enrich prompt). Phase 3 Max tier: audio (voice clone).
+	// This endpoint returns a presigned R2 PUT URL — frontend uploads directly,
+	// then attaches r2Key to session.configOverrides.heroAttachments[].
+	app.post("/hero-attachments/presign", {
+		schema: {
+			body: z.object({
+				workspaceId: z.string().uuid(),
+				filename: z.string().min(1).max(200),
+				mimeType: z.enum([
+					"image/jpeg",
+					"image/png",
+					"image/webp",
+					"application/pdf",
+					"audio/mpeg",
+					"audio/wav",
+					"audio/mp4",
+				]),
+				sizeBytes: z.number().int().positive().max(20 * 1024 * 1024),
+				kind: z.enum(["image", "pdf", "audio"]),
+			}),
+		},
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			if (!app.r2) {
+				reply.code(503);
+				return { error: "R2 not configured" };
+			}
+			// Sanitize filename — keep last 60 chars + replace non-alphanum.
+			const safeName = req.body.filename
+				.slice(-60)
+				.replace(/[^a-zA-Z0-9.-]/g, "_");
+			const r2Key = `quick-create/hero-attachments/${req.body.workspaceId}/${Date.now()}-${safeName}`;
+			const command = new PutObjectCommand({
+				Bucket: app.r2Buckets.uploads,
+				Key: r2Key,
+				ContentType: req.body.mimeType,
+				ContentLength: req.body.sizeBytes,
+			});
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const presignedUrl = await getSignedUrl(app.r2 as any, command as any, {
+				expiresIn: 600,
+			});
+			req.log.info(
+				{ userId: user.id, workspaceId: req.body.workspaceId, kind: req.body.kind, sizeBytes: req.body.sizeBytes },
+				"hero-attachment presign issued",
+			);
+			// Public URL — same bucket region pattern as music. R2 public access
+			// requires custom domain mapping; for now we return null and let LLM
+			// enrichment fetch via signed read URLs.
+			return {
+				presignedUrl,
+				r2Key,
+				publicUrl: null,
+				expiresInSec: 600,
+			};
+		},
+	});
+
 	// ─── Session lifecycle ─────────────────────────────────────────
 
 	app.post("/sessions", {
@@ -176,12 +242,25 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 				reply.status(403);
 				return { error: "Not a member of this workspace" };
 			}
+			// Persist hero attachments (QC-4) into configOverrides — outline route
+			// reads heroAttachments[] and enriches LLM prompt with image describes
+			// (Gemini vision) + PDF text extracts before calling DO Inference.
+			const initialConfig = req.body.heroAttachmentR2Keys?.length
+				? {
+						heroAttachments: req.body.heroAttachmentR2Keys.map((r2Key) => ({
+							r2Key,
+							uploadedAt: new Date().toISOString(),
+						})),
+					}
+				: undefined;
+
 			const session = (await app.prisma.quickCreateSession.create({
 				data: {
 					userId: user.id,
 					workspaceId: req.body.workspaceId,
 					prompt: req.body.prompt,
 					mode: req.body.mode === "pathA" ? "PATH_A" : "PATH_B",
+					...(initialConfig ? { configOverrides: initialConfig } : {}),
 				},
 			})) as SessionRow;
 
