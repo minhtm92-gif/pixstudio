@@ -18,6 +18,8 @@ interface DoInferenceInput {
   maxTokens?: number;
   /** Stream response (Phase 2+) */
   stream?: boolean;
+  /** OpenAI-compatible response_format. "json_object" forces JSON output (Anthropic + OpenAI models). */
+  responseFormat?: "text" | "json_object";
 }
 
 interface DoInferenceOutput {
@@ -121,6 +123,9 @@ export function createDoInferenceProvider(opts: {
           temperature: input.temperature ?? 0.7,
           max_tokens: input.maxTokens ?? 1000,
           stream: false,
+          ...(input.responseFormat === "json_object"
+            ? { response_format: { type: "json_object" } }
+            : {}),
         }),
       });
 
@@ -129,6 +134,19 @@ export function createDoInferenceProvider(opts: {
       const outputTokens = data.usage?.completion_tokens ?? 0;
       // Rough cost: Anthropic Sonnet 4 $3/1M input + $15/1M output
       const costUsd = (inputTokens * 3) / 1_000_000 + (outputTokens * 15) / 1_000_000;
+
+      // Deep logging when content is empty — helps diagnose finish_reason
+      // (length / content_filter / etc.) and shape of the choices array.
+      if (!text || text.length === 0) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[do-inference] Empty response — model=%s choices=%s finish=%s usage=%o",
+          model,
+          data.choices?.length ?? 0,
+          data.choices?.[0]?.finish_reason ?? "none",
+          data.usage,
+        );
+      }
 
       return {
         providerId: "do-inference",
