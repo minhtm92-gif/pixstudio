@@ -178,12 +178,19 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 
 			const sourceUrl = job.sourceUrl;
 			const workspaceId = job.workspaceId;
+			// S15: pull workspace tier for scene-detect sensitivity tuning.
+			const ws = await app.prisma.workspace.findUnique({
+				where: { id: workspaceId },
+				select: { billingTier: true },
+			});
+			const tier = (ws?.billingTier ?? "PRO") as "STANDARD" | "PRO" | "MAX";
 			void (async () => {
 				try {
 					const extraction = await runPathBPipeline({
 						jobId: job.id,
 						sessionId: job.sessionId,
 						sourceUrl,
+						tier,
 						prisma: app.prisma,
 						r2: app.r2 ?? null,
 						r2Buckets: app.r2Buckets,

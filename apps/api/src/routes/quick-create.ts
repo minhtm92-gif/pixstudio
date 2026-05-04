@@ -326,12 +326,19 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 					// Fire-and-forget pipeline. Status updates happen inside runPathBPipeline.
 					const sourceUrl = persistedSource;
 					const workspaceId = req.body.workspaceId;
+					// S15: workspace tier → tier-aware scene threshold.
+					const ws = await app.prisma.workspace.findUnique({
+						where: { id: workspaceId },
+						select: { billingTier: true },
+					});
+					const tier = (ws?.billingTier ?? "PRO") as "STANDARD" | "PRO" | "MAX";
 					void (async () => {
 						try {
 							const extraction = await runPathBPipeline({
 								jobId: job.id,
 								sessionId: session.id,
 								sourceUrl,
+								tier,
 								prisma: app.prisma,
 								r2: app.r2 ?? null,
 								r2Buckets: app.r2Buckets,

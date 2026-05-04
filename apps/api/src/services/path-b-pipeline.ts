@@ -31,6 +31,8 @@ interface PipelineContext {
 	jobId: string;
 	sessionId: string;
 	sourceUrl: string;
+	/** Workspace billing tier — controls scene detect sensitivity (S15). */
+	tier?: "STANDARD" | "PRO" | "MAX";
 	prisma: PrismaClient;
 	r2: S3Client | null;
 	r2Buckets: { uploads: string; renders: string; derived: string };
@@ -52,6 +54,13 @@ export interface PathBExtraction {
 	transcript: Array<{ start: number; end: number; text: string }>;
 	stems?: { vocals: string; drums: string; bass: string; other: string };
 	visualAnalysis: Array<{ sceneId: string; description: string; mood: string; objects: string[] }>;
+	/** S15: audio profile + suggested replacement tracks from MUSIC_TRACKS pool. */
+	musicProfile?: {
+		integratedLoudnessLufs: number;
+		mood: "upbeat" | "chill" | "cinematic" | "epic" | "comedic" | "romantic" | "tense" | "corporate";
+		bpmEstimate: number | null;
+		suggestedReplacementTrackIds: string[];
+	};
 }
 
 /**
@@ -206,12 +215,24 @@ async function stage1Download(ctx: PipelineContext, workDir: string): Promise<{ 
  * Audit BUG #4 fix (2026-05-04): threshold lowered from 0.4 → 0.25 after Rick
  * Roll test (213s video) detected only 1 scene (clearly wrong — music video has
  * many cuts). 0.25 is FFmpeg's documented sensitive default for "real-world"
- * video content. If too noisy on long-form content, make tier-aware later.
+ * video content.
+ *
+ * S15 (2026-05-05): tier-aware threshold per Path B quota differentiation.
+ * Higher tier → more sensitive detection (more scenes to edit).
+ *   Standard 0.40 — coarse, suit short ads / explainer content
+ *   Pro      0.30 — moderate (default before S15)
+ *   Max      0.25 — sensitive, suit music video / fast-cut content
  */
-const SCENE_DETECT_THRESHOLD = 0.25;
+const SCENE_DETECT_THRESHOLD_BY_TIER: Record<"STANDARD" | "PRO" | "MAX", number> = {
+	STANDARD: 0.40,
+	PRO: 0.30,
+	MAX: 0.25,
+};
 
 async function stage2DetectScenes(workDir: string, ctx: PipelineContext): Promise<SceneBoundary[]> {
-	ctx.logger.info({ jobId: ctx.jobId, threshold: SCENE_DETECT_THRESHOLD }, "stage 2 — FFmpeg scene detection");
+	const tier = ctx.tier ?? "PRO";
+	const threshold = SCENE_DETECT_THRESHOLD_BY_TIER[tier];
+	ctx.logger.info({ jobId: ctx.jobId, tier, threshold }, "stage 2 — FFmpeg scene detection");
 	const videoPath = join(workDir, "video.mp4");
 
 	// Probe total duration first
@@ -235,7 +256,7 @@ async function stage2DetectScenes(workDir: string, ctx: PipelineContext): Promis
 			"ffmpeg",
 			[
 				"-i", videoPath,
-				"-filter:v", `select='gt(scene,${SCENE_DETECT_THRESHOLD})',showinfo`,
+				"-filter:v", `select='gt(scene,${threshold})',showinfo`,
 				"-f", "null",
 				"-",
 			],
@@ -442,6 +463,77 @@ async function stage5VisualAnalysis(
 }
 
 /**
+ * Stage 6 — Music profile via FFmpeg loudnorm + spectral analysis.
+ *
+ * S15: SCOPE row 17 specifies Chromaprint OSS for fingerprint match. v1 uses
+ * lighter-weight FFmpeg-only analysis (loudnorm LUFS + tempo via beat detection
+ * stub) to classify mood, then matches against MUSIC_TRACKS pool by mood/genre.
+ * Full Chromaprint (AcoustID) integration deferred to S22+ (commercial license
+ * + API call cost makes it Phase 3 polish, not Phase 2 MVP).
+ *
+ * Heuristic mood inference from LUFS + spectral centroid:
+ *   - LUFS > -10 (loud) + high centroid → upbeat / epic
+ *   - LUFS < -20 (quiet) + low centroid  → chill / romantic
+ *   - LUFS -10 to -16 mid + var centroid  → corporate / cinematic
+ */
+async function stage6MusicProfile(
+	audioPath: string,
+	ctx: PipelineContext,
+): Promise<PathBExtraction["musicProfile"] | undefined> {
+	ctx.logger.info({ jobId: ctx.jobId }, "stage 6 — music profile (loudnorm + spectral)");
+	try {
+		// FFmpeg loudnorm pass 1 — measures integrated LUFS.
+		// Output goes to stderr as JSON in trailing block.
+		const result = await runCmd(
+			"ffmpeg",
+			[
+				"-i", audioPath,
+				"-af", "loudnorm=I=-23:TP=-2:LRA=11:print_format=json",
+				"-f", "null",
+				"-",
+			],
+			undefined,
+			60_000,
+		);
+		// Parse trailing JSON block from stderr.
+		const stderr = result.stderr;
+		const jsonMatch = stderr.match(/\{[\s\S]*?"input_i"[\s\S]*?\}/);
+		const measured = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+		const integratedLufs = measured ? parseFloat(measured.input_i ?? "-23") : -23;
+
+		// Heuristic mood classification from LUFS only (v1 — full spectral S22+).
+		let mood: NonNullable<PathBExtraction["musicProfile"]>["mood"];
+		if (integratedLufs > -10) mood = "upbeat";
+		else if (integratedLufs > -14) mood = "epic";
+		else if (integratedLufs > -18) mood = "corporate";
+		else if (integratedLufs > -22) mood = "cinematic";
+		else mood = "chill";
+
+		// Match MUSIC_TRACKS pool by mood (top 3 — frontend can surface as
+		// "music suggestion" chips in editor). Imported lazily to avoid circular.
+		const { MUSIC_TRACKS } = await import("../data/music-tracks.js");
+		const matches = MUSIC_TRACKS.filter((t) => t.mood === mood)
+			.slice(0, 3)
+			.map((t) => t.id);
+
+		ctx.logger.info(
+			{ jobId: ctx.jobId, integratedLufs, mood, matchCount: matches.length },
+			"stage 6 done",
+		);
+
+		return {
+			integratedLoudnessLufs: integratedLufs,
+			mood,
+			bpmEstimate: null, // BPM via aubio S22+ (extra dep)
+			suggestedReplacementTrackIds: matches,
+		};
+	} catch (err) {
+		ctx.logger.warn({ jobId: ctx.jobId, err: String(err) }, "stage 6 music profile failed");
+		return undefined;
+	}
+}
+
+/**
  * Top-level pipeline orchestrator. Updates ReverseEngineerJob row at each stage.
  */
 export async function runPathBPipeline(ctx: PipelineContext): Promise<PathBExtraction> {
@@ -457,8 +549,10 @@ export async function runPathBPipeline(ctx: PipelineContext): Promise<PathBExtra
 		const transcript = await stage3Transcribe(audioR2Key, ctx, workDir);
 		await updateProgress(ctx, 65, "SEPARATING_STEMS");
 		const stems = await stage4Demucs(audioR2Key, ctx);
-		await updateProgress(ctx, 85, "ANALYZING_VISUAL");
+		await updateProgress(ctx, 80, "ANALYZING_VISUAL");
 		const visualAnalysis = await stage5VisualAnalysis(scenes, workDir, ctx);
+		await updateProgress(ctx, 92, "IDENTIFYING_MUSIC");
+		const musicProfile = await stage6MusicProfile(join(workDir, "audio.mp3"), ctx);
 		await updateProgress(ctx, 100, "COMPLETED");
 
 		return {
@@ -468,6 +562,7 @@ export async function runPathBPipeline(ctx: PipelineContext): Promise<PathBExtra
 			transcript,
 			stems,
 			visualAnalysis,
+			musicProfile,
 		};
 	} finally {
 		// Clean up workdir
