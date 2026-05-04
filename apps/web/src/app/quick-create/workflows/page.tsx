@@ -27,75 +27,79 @@ interface WorkflowCard {
 	seasonalLockout?: boolean;
 }
 
+// IDs MUST match backend workflowRegistry (packages/quick-create/src/templates/index.ts).
+// Audit BUG #12: outline endpoint returns "Unknown workflow X" if frontend
+// id ≠ registered template id. Frontend was using shorthand IDs that didn't
+// exist on backend (reel-hook-3s, ugc-senior-vn, etc.).
 const WORKFLOWS: WorkflowCard[] = [
 	{
 		id: "ad-product-vn",
 		name: "Quảng cáo sản phẩm",
 		nameEn: "Product Ad",
-		description: "Video ads 30-60s 9:16 cho FB/TikTok creator",
+		description: "Video ads 30-60s 9:16 cho FB/TikTok creator chạy paid campaigns",
 		gradient: "linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)",
 		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 30 },
 		pace: "fast",
 	},
 	{
-		id: "ugc-senior-vn",
-		name: "UGC Senior 50+",
-		nameEn: "UGC Senior 50+",
-		description: "Pace chậm, voice ấm — segment Senior VN",
+		id: "ugc-review-tiktok",
+		name: "UGC Review TikTok",
+		nameEn: "UGC Review TikTok",
+		description: "Authentic UGC review 30-45s — talking head + close-up demo",
 		gradient: "linear-gradient(135deg, #F59E0B 0%, #DC2626 100%)",
 		requiredTier: "standard",
-		platform: { ratio: "9:16", defaultDurationSec: 45 },
-		pace: "slow",
+		platform: { ratio: "9:16", defaultDurationSec: 35 },
+		pace: "medium",
 	},
 	{
 		id: "demo-product",
 		name: "Demo sản phẩm",
 		nameEn: "Product Demo",
-		description: "Voice rõ ràng, layout 16:9 hoặc 9:16",
+		description: "Video demo 60-120s 16:9 cho B2B / SaaS — clear narration",
 		gradient: "linear-gradient(135deg, #06B6D4 0%, #3B82F6 100%)",
 		requiredTier: "standard",
 		platform: { ratio: "16:9", defaultDurationSec: 60 },
 		pace: "medium",
 	},
 	{
-		id: "reel-hook-3s",
-		name: "Reel ngắn (Hook 3s)",
-		nameEn: "Short Reel",
-		description: "Hook 3s + music beat-sync · TikTok / Reels / Shorts",
+		id: "short-entertainment",
+		name: "Reel/Short giải trí",
+		nameEn: "Short Entertainment",
+		description: "Video giải trí 15-60s — viral hook, beat-sync, TikTok/Reel/Shorts",
 		gradient: "linear-gradient(135deg, #EC4899 0%, #F97316 100%)",
 		requiredTier: "standard",
-		platform: { ratio: "9:16", defaultDurationSec: 15 },
+		platform: { ratio: "9:16", defaultDurationSec: 30 },
 		pace: "fast",
 	},
 	{
-		id: "youtube-long",
-		name: "YouTube long",
+		id: "youtube-long-entertainment",
+		name: "YouTube giải trí dài",
 		nameEn: "YouTube Long-form",
-		description: "5-15 phút · chapter markers · intro/outro",
+		description: "Video dài 5-15min — storytelling narrative + intro/outro + chapter markers",
 		gradient: "linear-gradient(135deg, #DC2626 0%, #7F1D1D 100%)",
-		requiredTier: "pro",
-		platform: { ratio: "16:9", defaultDurationSec: 600 },
+		requiredTier: "standard",
+		platform: { ratio: "16:9", defaultDurationSec: 480 },
 		pace: "medium",
 	},
 	{
 		id: "storytelling-cinematic",
-		name: "Storytelling Cinematic",
+		name: "Storytelling cinematic",
 		nameEn: "Cinematic Storytelling",
-		description: "LUT cinematic · letterbox · ambient music",
+		description: "Video cinematic 60-180s — slow pace, letterbox, Teal-Orange LUT",
 		gradient: "linear-gradient(135deg, #1F2937 0%, #4B5563 100%)",
 		requiredTier: "pro",
 		platform: { ratio: "16:9", defaultDurationSec: 120 },
 		pace: "slow",
 	},
 	{
-		id: "tet-bundle-vn",
+		id: "tet-bundle",
 		name: "Tết bundle",
 		nameEn: "Lunar New Year Bundle",
-		description: "Stock pool tết · gold/red palette · traditional VN music",
+		description: "Video Tết 30-60s — gold/red palette, Tết music, VN cultural assets",
 		gradient: "linear-gradient(135deg, #FCD34D 0%, #DC2626 100%)",
 		requiredTier: "standard",
-		platform: { ratio: "9:16", defaultDurationSec: 30 },
+		platform: { ratio: "9:16", defaultDurationSec: 45 },
 		pace: "medium",
 		seasonalLockout: !isInTetWindow(new Date()),
 	},
@@ -103,11 +107,21 @@ const WORKFLOWS: WorkflowCard[] = [
 		id: "script-to-video",
 		name: "Script-to-Video",
 		nameEn: "Script to Video",
-		description: "Paste script → auto cut scenes incremental TTS",
+		description: "Paste script → auto cut scenes by sentence + match stock + TTS",
 		gradient: "linear-gradient(135deg, #10B981 0%, #06B6D4 100%)",
-		requiredTier: "pro",
+		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 60 },
 		pace: "medium",
+	},
+	{
+		id: "dropshipping-fb-ad",
+		name: "Dropshipping FB Ad",
+		nameEn: "Dropshipping FB Ad",
+		description: "EN cross-border FB ad 40-60s — 5-act structure (Hook + Demo + Lifestyle + Proof + CTA)",
+		gradient: "linear-gradient(135deg, #8B5CF6 0%, #EC4899 100%)",
+		requiredTier: "pro",
+		platform: { ratio: "4:5", defaultDurationSec: 50 },
+		pace: "fast",
 	},
 ];
 
@@ -227,7 +241,7 @@ function WorkflowsPageContent() {
 				<div className="mb-8 space-y-2">
 					<h1 className="font-bold text-3xl tracking-tight">Choose a workflow</h1>
 					<p className="text-muted-foreground">
-						8 workflow tune sẵn cho creator Việt Nam · Standard / Pro / Max tier
+						9 workflow tune sẵn cho creator Việt Nam · Standard / Pro / Max tier
 					</p>
 					{promptFromHero && (
 						<p className="text-xs text-muted-foreground">
