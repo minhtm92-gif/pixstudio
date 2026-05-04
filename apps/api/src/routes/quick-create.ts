@@ -454,20 +454,19 @@ IMPORTANT: Do NOT mention "Crossian", "PATTERN HINTS", "framework", "RAG", or an
 						{ tier: "pro", workspaceId: session.workspaceId, userId: user.id } as never,
 					);
 					durationMs = Date.now() - startedAt;
-					const text = (llmResult as { text?: string }).text ?? "";
-					costUsd = (llmResult as { costUsd?: number }).costUsd ?? 0;
-
-					if (text.length === 0) {
-						// Diagnostic: dump entire llmResult shape so we can see why DO
-						// Inference returned empty. Includes finishReason + usage.
-						req.log.warn(
-							{
-								sessionId: session.id,
-								llmResult: JSON.stringify(llmResult).slice(0, 1500),
-							},
-							"DO Inference returned empty content",
-						);
-					}
+					// Audit BUG #1 root cause: AI router result shape is
+					// { providerId, costUsd, durationMs, mode, output: { text, model, usage } }
+					// — text lives on llmResult.output.text, NOT llmResult.text. Reading
+					// the wrong field is what caused every outline generation since
+					// Sprint 2 to silently fall back to the mock template.
+					const wrappedResult = llmResult as {
+						output?: { text?: string };
+						text?: string;
+						costUsd?: number;
+					};
+					const text =
+						wrappedResult.output?.text ?? wrappedResult.text ?? "";
+					costUsd = wrappedResult.costUsd ?? 0;
 
 					const parsed = parseOutlineLLMResponse(text);
 					if (!parsed) {
