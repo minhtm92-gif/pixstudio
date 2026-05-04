@@ -457,6 +457,18 @@ IMPORTANT: Do NOT mention "Crossian", "PATTERN HINTS", "framework", "RAG", or an
 					const text = (llmResult as { text?: string }).text ?? "";
 					costUsd = (llmResult as { costUsd?: number }).costUsd ?? 0;
 
+					if (text.length === 0) {
+						// Diagnostic: dump entire llmResult shape so we can see why DO
+						// Inference returned empty. Includes finishReason + usage.
+						req.log.warn(
+							{
+								sessionId: session.id,
+								llmResult: JSON.stringify(llmResult).slice(0, 1500),
+							},
+							"DO Inference returned empty content",
+						);
+					}
+
 					const parsed = parseOutlineLLMResponse(text);
 					if (!parsed) {
 						throw new Error(
