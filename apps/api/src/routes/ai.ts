@@ -223,6 +223,42 @@ export const aiRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
+  // === POST /api/ai/video/poll — Poll Seedance/Kling task status (S18) ===
+  // Body: { taskId, provider: "seedance-2-0" | "kling-3-0" }
+  // Returns: { status, videoUrl?, durationSec?, error? }
+  app.post("/video/poll", {
+    schema: {
+      body: z.object({
+        taskId: z.string(),
+        provider: z.enum(["seedance-2-0", "kling-3-0"]).default("seedance-2-0"),
+      }),
+    },
+    handler: async (req, reply) => {
+      // For Seedance: directly use ByteplusClient.pollSeedance via env keys.
+      // Kling: use FalClient.pollKling (not exposed yet — Phase 3).
+      if (req.body.provider !== "seedance-2-0") {
+        reply.code(501);
+        return { error: "Only Seedance polling supported in S18" };
+      }
+      const accessKey = process.env["BYTEPLUS_ACCESS_KEY"];
+      const secretKey = process.env["BYTEPLUS_SECRET_KEY"];
+      if (!accessKey || !secretKey) {
+        reply.code(503);
+        return { error: "BYTEPLUS_ACCESS_KEY / BYTEPLUS_SECRET_KEY not configured" };
+      }
+      const { ByteplusClient } = await import("@pixstudio/ai-services");
+      const client = new ByteplusClient({ accessKey, secretKey });
+      try {
+        const result = await client.pollSeedance(req.body.taskId);
+        return result;
+      } catch (err) {
+        req.log.error({ err: err instanceof Error ? err.message : String(err) }, "Seedance poll failed");
+        reply.code(502);
+        return { error: err instanceof Error ? err.message : "Poll failed" };
+      }
+    },
+  });
+
   // === POST /api/ai/video/t2v — video.textToVideo (async) ===
   app.post("/video/t2v", {
     schema: {

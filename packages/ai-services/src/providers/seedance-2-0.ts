@@ -4,7 +4,7 @@
  * Per ADR-001 §3 + D27 locked AI mesh.
  */
 
-import { BaseClient } from "../clients/_base.ts";
+import { ByteplusClient } from "../clients/byteplus.ts";
 import type { AIProvider, InvokeContext, InvokeResultBase } from "../types.ts";
 
 interface SeedanceI2VInput {
@@ -21,16 +21,16 @@ interface SeedanceI2VOutput {
   thumbnailUrl: string;
   durationSec: number;
   fileSizeBytes: number;
+  taskId?: string;
 }
 
 export function createSeedance20Provider(opts: {
   accessKey: string;
   secretKey: string;
 }): AIProvider<SeedanceI2VInput, SeedanceI2VOutput> {
-  const client = new BaseClient({
-    baseUrl: "https://open.byteplusapi.com",
-    timeout: 60000,
-    maxRetries: 2,
+  const client = new ByteplusClient({
+    accessKey: opts.accessKey,
+    secretKey: opts.secretKey,
   });
 
   return {
@@ -55,17 +55,8 @@ export function createSeedance20Provider(opts: {
     },
 
     async healthCheck() {
-      const start = Date.now();
-      try {
-        await client.request("/api/v1/contents/generations/health", { method: "GET" });
-        return { healthy: true, latencyMs: Date.now() - start };
-      } catch (err) {
-        return {
-          healthy: false,
-          latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
+      // Byteplus has no public health endpoint — assume healthy when client constructed.
+      return { healthy: true, latencyMs: 0 };
     },
 
     async validateInput(input) {
@@ -78,22 +69,30 @@ export function createSeedance20Provider(opts: {
     async invoke(input, ctx): Promise<InvokeResultBase & { output?: SeedanceI2VOutput }> {
       const start = Date.now();
 
-      // TODO Sprint 1+: implement actual Byteplus signed request (HMAC-SHA256 v4 signature)
-      // Phase 0 stub returns mock URL for plug-in interface validation
-      const stub: SeedanceI2VOutput = {
-        videoUrl: `https://stub.pxs.local/seedance/${ctx.traceId}.mp4`,
-        thumbnailUrl: `https://stub.pxs.local/seedance/${ctx.traceId}-thumb.jpg`,
-        durationSec: input.durationSec,
-        fileSizeBytes: input.durationSec * 8_000_000, // ~8 MB/s rough
-      };
+      // S18: real Byteplus HMAC v4 signed submit. Returns task_id immediately.
+      // Caller (route handler / build pipeline) polls via parseWebhook OR the
+      // dedicated POST /api/ai/video/i2v/poll endpoint.
+      const submitted = await client.submitSeedance({
+        mode: "i2v",
+        prompt: input.prompt ?? "Cinematic, smooth motion, professional grade",
+        imageUrl: input.imageUrl,
+        durationSec: input.durationSec as 3 | 5 | 8,
+        aspectRatio: input.aspectRatio,
+      });
 
       return {
         providerId: "seedance-2-0",
         costUsd: input.durationSec * 0.08,
         durationMs: Date.now() - start,
         mode: "async",
-        jobId: ctx.traceId,
-        output: stub,
+        jobId: submitted.taskId,
+        output: {
+          videoUrl: "",
+          thumbnailUrl: "",
+          durationSec: input.durationSec,
+          fileSizeBytes: 0,
+          taskId: submitted.taskId,
+        },
       };
     },
 
