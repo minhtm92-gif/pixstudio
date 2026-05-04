@@ -123,9 +123,12 @@ export function createDoInferenceProvider(opts: {
           temperature: input.temperature ?? 0.7,
           max_tokens: input.maxTokens ?? 1000,
           stream: false,
-          ...(input.responseFormat === "json_object"
-            ? { response_format: { type: "json_object" } }
-            : {}),
+          // DO Inference Engine rejects OpenAI's standard
+          // response_format: { type: "json_object" } with 400 — it expects
+          // { type: "json_schema", json_schema: {...} } shape per their API spec.
+          // For now we omit response_format and rely on the prompt's "Return
+          // JSON ONLY" instruction. Caller's parseOutlineLLMResponse strips
+          // markdown fences so unstructured JSON output still works.
         }),
       });
 
