@@ -14,7 +14,8 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Loader2, AlertCircle, CheckCircle2, Video, ArrowRight } from "lucide-react";
 import { PageShell } from "@/components/pixstudio/page-shell";
-import { apiFetch, type PixStudioUser } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
+import { useAuthUser } from "@/hooks/use-auth-user";
 
 type JobStatus =
 	| "PENDING"
@@ -42,13 +43,6 @@ interface JobRow {
 	completedAt: string | null;
 }
 
-const STUB_USER: PixStudioUser = {
-	name: "Demo",
-	tier: "PRO",
-	buildsUsed: 0,
-	buildsLimit: 50,
-};
-
 const STATUS_LABELS: Record<JobStatus, string> = {
 	PENDING: "Đang chờ xử lý...",
 	DOWNLOADING: "Đang tải video tham khảo (yt-dlp)",
@@ -68,6 +62,7 @@ export default function PathBJobStatusPage() {
 	const params = useParams();
 	const router = useRouter();
 	const jobId = params.jobId as string;
+	const { user } = useAuthUser();
 
 	const [job, setJob] = useState<JobRow | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -122,7 +117,7 @@ export default function PathBJobStatusPage() {
 	const isDone = job?.status === "COMPLETED";
 
 	return (
-		<PageShell user={STUB_USER}>
+		<PageShell user={user}>
 			<div className="px-8 pt-6">
 				<div className="mb-2 font-mono text-xs text-white/50">Home / Path B / Status</div>
 				<h1 className="flex flex-wrap items-center gap-3 font-serif text-3xl font-normal text-zinc-300">
@@ -138,9 +133,20 @@ export default function PathBJobStatusPage() {
 
 			<div className="mx-auto w-full max-w-2xl px-8 py-8">
 				{error && (
-					<div className="mb-4 flex items-start gap-2 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-300">
-						<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-						<span>{error}</span>
+					<div className="mb-4 flex flex-col items-start gap-2 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-300">
+						<div className="flex items-start gap-2">
+							<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+							<span>{error}</span>
+						</div>
+						{(error.includes("not found") || error.includes("404")) && (
+							<button
+								type="button"
+								onClick={() => router.push("/")}
+								className="rounded-md bg-orange-500/20 px-3 py-1 text-xs hover:bg-orange-500/30"
+							>
+								Bắt đầu Path B mới →
+							</button>
+						)}
 					</div>
 				)}
 

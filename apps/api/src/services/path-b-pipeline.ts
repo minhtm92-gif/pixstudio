@@ -173,12 +173,19 @@ async function stage1Download(ctx: PipelineContext, workDir: string): Promise<{ 
  *
  * FFmpeg flow:
  *   1. ffprobe → total duration
- *   2. ffmpeg -filter:v "select='gt(scene,0.4)',showinfo" → stderr emits
- *      pts_time markers at each scene change above threshold 0.4
+ *   2. ffmpeg -filter:v "select='gt(scene,0.25)',showinfo" → stderr emits
+ *      pts_time markers at each scene change above threshold 0.25
  *   3. Parse pts_time → SceneBoundary[]
+ *
+ * Audit BUG #4 fix (2026-05-04): threshold lowered from 0.4 → 0.25 after Rick
+ * Roll test (213s video) detected only 1 scene (clearly wrong — music video has
+ * many cuts). 0.25 is FFmpeg's documented sensitive default for "real-world"
+ * video content. If too noisy on long-form content, make tier-aware later.
  */
+const SCENE_DETECT_THRESHOLD = 0.25;
+
 async function stage2DetectScenes(workDir: string, ctx: PipelineContext): Promise<SceneBoundary[]> {
-	ctx.logger.info({ jobId: ctx.jobId }, "stage 2 — FFmpeg scene detection");
+	ctx.logger.info({ jobId: ctx.jobId, threshold: SCENE_DETECT_THRESHOLD }, "stage 2 — FFmpeg scene detection");
 	const videoPath = join(workDir, "video.mp4");
 
 	// Probe total duration first
@@ -202,7 +209,7 @@ async function stage2DetectScenes(workDir: string, ctx: PipelineContext): Promis
 			"ffmpeg",
 			[
 				"-i", videoPath,
-				"-filter:v", "select='gt(scene,0.4)',showinfo",
+				"-filter:v", `select='gt(scene,${SCENE_DETECT_THRESHOLD})',showinfo`,
 				"-f", "null",
 				"-",
 			],

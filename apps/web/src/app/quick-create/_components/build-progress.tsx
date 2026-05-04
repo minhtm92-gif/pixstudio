@@ -292,7 +292,17 @@ export function BuildProgress({
 				<input
 					type="checkbox"
 					checked={notify}
-					onChange={(e) => setNotify(e.target.checked)}
+					onChange={(e) => {
+						const next = e.target.checked;
+						setNotify(next);
+						// Persist preference to session config so worker emits
+						// notification on COMPLETED. Fire-and-forget (don't block UI).
+						if (sessionId) {
+							void quickCreateApi
+								.setNotifyPreference(sessionId, next)
+								.catch((err) => console.warn("[notify] persist failed", err));
+						}
+					}}
 					className="h-4 w-4"
 					disabled={done}
 				/>

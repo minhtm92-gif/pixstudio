@@ -5,26 +5,17 @@
  * Phase 1 success gate: ≥80% Editor team daily build (per Q57).
  */
 
-import type { Metadata } from "next";
+"use client";
+
 import { PageShell } from "@/components/pixstudio/page-shell";
 import { KpiDashboard } from "@/components/admin/kpi-dashboard";
 import { KpiHeader } from "@/components/admin/kpi-header";
-import type { PixStudioUser } from "@/lib/api-client";
-
-export const metadata: Metadata = {
-	title: "KPI Dashboard · Admin · PixStudio",
-};
-
-const STUB_USER: PixStudioUser = {
-	name: "Admin",
-	tier: "MAX",
-	buildsUsed: 0,
-	buildsLimit: -1,
-};
+import { useAuthUser } from "@/hooks/use-auth-user";
 
 export default function AdminKpiPage() {
+	const { user } = useAuthUser();
 	return (
-		<PageShell user={STUB_USER}>
+		<PageShell user={user}>
 			<KpiHeader />
 			<div className="px-8 py-6">
 				<KpiDashboard />

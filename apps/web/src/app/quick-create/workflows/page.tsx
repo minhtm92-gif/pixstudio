@@ -19,7 +19,8 @@ interface WorkflowCard {
 	name: string;
 	nameEn: string;
 	description: string;
-	thumbnail: string;
+	/** CSS gradient for thumbnail — replaces missing /quick-create/thumbnails/*.jpg files. */
+	gradient: string;
 	requiredTier: "standard" | "pro" | "max";
 	platform: { ratio: string; defaultDurationSec: number };
 	pace: "slow" | "medium" | "fast";
@@ -32,7 +33,7 @@ const WORKFLOWS: WorkflowCard[] = [
 		name: "Quảng cáo sản phẩm",
 		nameEn: "Product Ad",
 		description: "Video ads 30-60s 9:16 cho FB/TikTok creator",
-		thumbnail: "/quick-create/thumbnails/ad-product-vn.jpg",
+		gradient: "linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)",
 		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 30 },
 		pace: "fast",
@@ -42,7 +43,7 @@ const WORKFLOWS: WorkflowCard[] = [
 		name: "UGC Senior 50+",
 		nameEn: "UGC Senior 50+",
 		description: "Pace chậm, voice ấm — segment Senior VN",
-		thumbnail: "/quick-create/thumbnails/ugc-senior-vn.jpg",
+		gradient: "linear-gradient(135deg, #F59E0B 0%, #DC2626 100%)",
 		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 45 },
 		pace: "slow",
@@ -52,7 +53,7 @@ const WORKFLOWS: WorkflowCard[] = [
 		name: "Demo sản phẩm",
 		nameEn: "Product Demo",
 		description: "Voice rõ ràng, layout 16:9 hoặc 9:16",
-		thumbnail: "/quick-create/thumbnails/demo-product.jpg",
+		gradient: "linear-gradient(135deg, #06B6D4 0%, #3B82F6 100%)",
 		requiredTier: "standard",
 		platform: { ratio: "16:9", defaultDurationSec: 60 },
 		pace: "medium",
@@ -62,7 +63,7 @@ const WORKFLOWS: WorkflowCard[] = [
 		name: "Reel ngắn (Hook 3s)",
 		nameEn: "Short Reel",
 		description: "Hook 3s + music beat-sync · TikTok / Reels / Shorts",
-		thumbnail: "/quick-create/thumbnails/reel-hook-3s.jpg",
+		gradient: "linear-gradient(135deg, #EC4899 0%, #F97316 100%)",
 		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 15 },
 		pace: "fast",
@@ -72,7 +73,7 @@ const WORKFLOWS: WorkflowCard[] = [
 		name: "YouTube long",
 		nameEn: "YouTube Long-form",
 		description: "5-15 phút · chapter markers · intro/outro",
-		thumbnail: "/quick-create/thumbnails/youtube-long.jpg",
+		gradient: "linear-gradient(135deg, #DC2626 0%, #7F1D1D 100%)",
 		requiredTier: "pro",
 		platform: { ratio: "16:9", defaultDurationSec: 600 },
 		pace: "medium",
@@ -82,7 +83,7 @@ const WORKFLOWS: WorkflowCard[] = [
 		name: "Storytelling Cinematic",
 		nameEn: "Cinematic Storytelling",
 		description: "LUT cinematic · letterbox · ambient music",
-		thumbnail: "/quick-create/thumbnails/storytelling.jpg",
+		gradient: "linear-gradient(135deg, #1F2937 0%, #4B5563 100%)",
 		requiredTier: "pro",
 		platform: { ratio: "16:9", defaultDurationSec: 120 },
 		pace: "slow",
@@ -92,7 +93,7 @@ const WORKFLOWS: WorkflowCard[] = [
 		name: "Tết bundle",
 		nameEn: "Lunar New Year Bundle",
 		description: "Stock pool tết · gold/red palette · traditional VN music",
-		thumbnail: "/quick-create/thumbnails/tet-bundle-vn.jpg",
+		gradient: "linear-gradient(135deg, #FCD34D 0%, #DC2626 100%)",
 		requiredTier: "standard",
 		platform: { ratio: "9:16", defaultDurationSec: 30 },
 		pace: "medium",
@@ -103,7 +104,7 @@ const WORKFLOWS: WorkflowCard[] = [
 		name: "Script-to-Video",
 		nameEn: "Script to Video",
 		description: "Paste script → auto cut scenes incremental TTS",
-		thumbnail: "/quick-create/thumbnails/script-to-video.jpg",
+		gradient: "linear-gradient(135deg, #10B981 0%, #06B6D4 100%)",
 		requiredTier: "pro",
 		platform: { ratio: "9:16", defaultDurationSec: 60 },
 		pace: "medium",
@@ -257,8 +258,8 @@ function WorkflowsPageContent() {
 								}`}
 							>
 								<div
-									className="aspect-video w-full bg-gradient-to-br from-muted to-muted-foreground/20 bg-cover bg-center"
-									style={{ backgroundImage: `url(${wf.thumbnail})` }}
+									className="aspect-video w-full"
+									style={{ background: wf.gradient }}
 								/>
 								<div className="space-y-2 p-4">
 									<div className="flex items-start justify-between gap-2">

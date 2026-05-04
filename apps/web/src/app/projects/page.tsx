@@ -68,14 +68,8 @@ import { RenameProjectDialog } from "@/project/components/rename-project-dialog"
 import { cn } from "@/utils/ui";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { Sidebar } from "@/components/pixstudio/sidebar";
-import type { PixStudioUser } from "@/lib/api-client";
+import { useAuthUser } from "@/hooks/use-auth-user";
 
-const PIXSTUDIO_STUB_USER: PixStudioUser = {
-	name: "Demo",
-	tier: "PRO",
-	buildsUsed: 0,
-	buildsLimit: 50,
-};
 const formatProjectDuration = ({
 	duration,
 }: {
@@ -84,8 +78,11 @@ const formatProjectDuration = ({
 	if (duration === undefined) {
 		return null;
 	}
-
 	const durationSeconds = mediaTimeToSeconds({ time: duration });
+	if (durationSeconds <= 0) {
+		// Audit BUG #7: empty projects show "—" instead of misleading "00:00".
+		return null;
+	}
 	const format = durationSeconds >= 3600 ? "HH:MM:SS" : "MM:SS";
 	return formatTimecode({ time: duration, format }) ?? "";
 };
@@ -98,6 +95,7 @@ const VIEW_MODE_OPTIONS = [
 export default function ProjectsPage() {
 	const { searchQuery, sortKey, sortOrder, viewMode } = useProjectsStore();
 	const editor = useEditor();
+	const { user } = useAuthUser();
 	const sortOption: TProjectSortOption = `${sortKey}-${sortOrder}`;
 
 	const isLoading = useEditor((e) => e.project.getIsLoading());
@@ -114,7 +112,7 @@ export default function ProjectsPage() {
 
 	return (
 		<div className="flex bg-background min-h-screen">
-			<Sidebar user={PIXSTUDIO_STUB_USER} />
+			<Sidebar user={user} />
 			<div className="flex-1 min-w-0">
 				<MigrationDialog />
 				<StoragePersistenceDialog />

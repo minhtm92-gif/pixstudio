@@ -10,7 +10,8 @@
 import { useEffect, useState } from "react";
 import { Palette, Save, Lock, Loader2 } from "lucide-react";
 import { PageShell } from "@/components/pixstudio/page-shell";
-import { apiFetch, type PixStudioUser } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
+import { useAuthUser } from "@/hooks/use-auth-user";
 
 interface BrandKitData {
 	id: string;
@@ -30,13 +31,6 @@ interface WorkspaceRow {
 	name: string;
 }
 
-const STUB_USER: PixStudioUser = {
-	name: "Demo",
-	tier: "PRO",
-	buildsUsed: 0,
-	buildsLimit: 50,
-};
-
 const DEFAULT_KIT: Omit<BrandKitData, "id" | "workspaceId"> = {
 	primaryColor: "#3B82F6",
 	secondaryColor: null,
@@ -49,6 +43,7 @@ const DEFAULT_KIT: Omit<BrandKitData, "id" | "workspaceId"> = {
 };
 
 export default function BrandKitPage() {
+	const { user } = useAuthUser();
 	const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 	const [workspaceName, setWorkspaceName] = useState<string>("");
 	const [kit, setKit] = useState<typeof DEFAULT_KIT>(DEFAULT_KIT);
@@ -117,7 +112,7 @@ export default function BrandKitPage() {
 	};
 
 	return (
-		<PageShell user={STUB_USER}>
+		<PageShell user={user}>
 			<div className="px-8 pt-6">
 				<div className="mb-2 font-mono text-xs text-white/50">Home / Settings / Brand Kit</div>
 				<h1 className="flex flex-wrap items-center gap-3 font-serif text-3xl font-normal text-zinc-300">

@@ -7,18 +7,12 @@
  */
 
 import type { Metadata } from "next";
-import { AssetStudioView } from "../../components/pixstudio/asset-studio-view";
+import { AssetStudioClient } from "./_client";
 
 export const metadata: Metadata = {
 	title: "Asset Studio · PixStudio",
 };
 
-export default async function AssetsPage() {
-	const stubUser = {
-		name: "Anh Minh",
-		tier: "PRO" as const,
-		buildsUsed: 32,
-		buildsLimit: 50,
-	};
-	return <AssetStudioView user={stubUser} />;
+export default function AssetsPage() {
+	return <AssetStudioClient />;
 }

@@ -10,7 +10,8 @@
 import { useEffect, useState } from "react";
 import { Lock, AlertTriangle, AlertCircle, Info, CheckCircle2, Bug, Loader2 } from "lucide-react";
 import { PageShell } from "@/components/pixstudio/page-shell";
-import { apiFetch, type PixStudioUser } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
+import { useAuthUser } from "@/hooks/use-auth-user";
 
 type Severity = "P0" | "P1" | "P2" | "P3";
 type Status = "OPEN" | "IN_PROGRESS" | "FIXED" | "WONT_FIX" | "DUPLICATE";
@@ -26,13 +27,6 @@ interface BugReport {
 	createdAt: string;
 	resolvedAt: string | null;
 }
-
-const STUB_USER: PixStudioUser = {
-	name: "Admin",
-	tier: "MAX",
-	buildsUsed: 0,
-	buildsLimit: -1,
-};
 
 const SEVERITY_META: Record<Severity, { icon: React.ReactNode; cls: string }> = {
 	P0: { icon: <AlertTriangle className="h-3.5 w-3.5" />, cls: "border-red-500/40 bg-red-500/10 text-red-300" },
@@ -50,6 +44,7 @@ const STATUS_META: Record<Status, { label: string; cls: string }> = {
 };
 
 export default function AdminBugReportsPage() {
+	const { user } = useAuthUser();
 	const [bugs, setBugs] = useState<BugReport[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -100,7 +95,7 @@ export default function AdminBugReportsPage() {
 	};
 
 	return (
-		<PageShell user={STUB_USER}>
+		<PageShell user={user}>
 			<div className="px-8 pt-6">
 				<div className="mb-2 font-mono text-xs text-white/50">Home / Settings / Admin / Bug Reports</div>
 				<h1 className="flex flex-wrap items-center gap-3 font-serif text-3xl font-normal text-zinc-300">

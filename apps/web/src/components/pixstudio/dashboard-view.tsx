@@ -200,13 +200,15 @@ export function DashboardView({ user }: DashboardViewProps) {
 			<main className="flex flex-1 flex-col overflow-x-hidden">
 				{/* Top bar */}
 				<div className="flex items-center justify-end gap-3 px-7 py-3.5">
-					<button
-						type="button"
-						onClick={() => router.push("/account")}
-						className="rounded-md bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white/87 hover:bg-zinc-700"
-					>
-						⚡ Tăng tier
-					</button>
+					{user?.tier !== "MAX" && (
+						<button
+							type="button"
+							onClick={() => router.push("/account")}
+							className="rounded-md bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white/87 hover:bg-zinc-700"
+						>
+							{user?.tier === "PRO" ? "⚡ Upgrade to MAX" : "⚡ Tăng tier"}
+						</button>
+					)}
 					{user && (
 						<button
 							type="button"

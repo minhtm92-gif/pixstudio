@@ -11,7 +11,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Lock, Music, Upload, CheckCircle2 } from "lucide-react";
 import { PageShell } from "@/components/pixstudio/page-shell";
-import { apiFetch, type PixStudioUser } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
+import { useAuthUser } from "@/hooks/use-auth-user";
 
 interface Track {
 	id: string;
@@ -25,14 +26,8 @@ interface Track {
 	r2Key: string | null;
 }
 
-const STUB_USER: PixStudioUser = {
-	name: "Admin",
-	tier: "MAX",
-	buildsUsed: 0,
-	buildsLimit: -1,
-};
-
 export default function AdminMusicPage() {
+	const { user } = useAuthUser();
 	const [tracks, setTracks] = useState<Track[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [uploadingId, setUploadingId] = useState<string | null>(null);
@@ -80,7 +75,7 @@ export default function AdminMusicPage() {
 	};
 
 	return (
-		<PageShell user={STUB_USER}>
+		<PageShell user={user}>
 			<div className="px-8 pt-6">
 				<div className="mb-2 font-mono text-xs text-white/50">Home / Settings / Admin / Music</div>
 				<h1 className="flex flex-wrap items-center gap-3 font-serif text-3xl font-normal text-zinc-300">

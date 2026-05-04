@@ -5,26 +5,17 @@
  * filtering). Hero CTA points to Quick Create which already covers the scaffolding.
  */
 
-import type { Metadata } from "next";
+"use client";
+
 import Link from "next/link";
 import { LayoutGrid, ArrowRight } from "lucide-react";
 import { PageShell } from "@/components/pixstudio/page-shell";
-import type { PixStudioUser } from "@/lib/api-client";
-
-export const metadata: Metadata = {
-	title: "Templates · PixStudio",
-};
-
-const STUB_USER: PixStudioUser = {
-	name: "Demo",
-	tier: "PRO",
-	buildsUsed: 0,
-	buildsLimit: 50,
-};
+import { useAuthUser } from "@/hooks/use-auth-user";
 
 export default function TemplatesPage() {
+	const { user } = useAuthUser();
 	return (
-		<PageShell user={STUB_USER}>
+		<PageShell user={user}>
 			<div className="px-8 pt-6">
 				<div className="mb-2 font-mono text-xs text-white/50">Home / Templates</div>
 				<h1 className="font-serif text-3xl font-normal text-zinc-300">Templates</h1>

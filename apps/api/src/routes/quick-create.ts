@@ -68,6 +68,33 @@ interface SessionRow {
 	updatedAt: Date;
 }
 
+/**
+ * Parse outline LLM response — handles raw JSON, markdown ```json fences,
+ * and content with leading/trailing whitespace or commentary text. Returns
+ * `null` if no valid JSON object detected (caller should fall back to mock).
+ */
+function parseOutlineLLMResponse(rawText: string): Record<string, unknown> | null {
+	if (!rawText) return null;
+	// Strip markdown fence (```json ... ``` or ``` ... ```)
+	let text = rawText.trim();
+	const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+	if (fenceMatch?.[1]) {
+		text = fenceMatch[1].trim();
+	}
+	// Find first { ... last } substring (handle commentary before/after JSON)
+	const jsonStart = text.indexOf("{");
+	const jsonEnd = text.lastIndexOf("}");
+	if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+		return null;
+	}
+	const slice = text.slice(jsonStart, jsonEnd + 1);
+	try {
+		return JSON.parse(slice) as Record<string, unknown>;
+	} catch {
+		return null;
+	}
+}
+
 function generateMockOutline(
 	workflow: ReturnType<typeof workflowRegistry.get> & {},
 	prompt: string,
@@ -286,6 +313,34 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 		},
 	});
 
+	// PATCH /sessions/:id/notify — persist build-completion notification preference.
+	// Audit BUG #8: previously checkbox was UI-only with no backend persistence.
+	// Worker reads notifyEnabled from session.configOverrides on COMPLETED.
+	app.patch("/sessions/:sessionId/notify", {
+		schema: {
+			params: SessionIdParamsSchema,
+			body: z.object({ enabled: z.boolean() }),
+		},
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			const result = await loadSession(req.params.sessionId, user.id);
+			if (result.error) return handleSessionError(reply, result.error);
+			const existingConfig =
+				(result.session.configOverrides as Record<string, unknown> | null) ?? {};
+			const updated = (await app.prisma.quickCreateSession.update({
+				where: { id: req.params.sessionId },
+				data: {
+					configOverrides: {
+						...existingConfig,
+						notifyOnComplete: req.body.enabled,
+					} as object,
+				},
+			})) as SessionRow;
+			return { id: updated.id };
+		},
+	});
+
 	// ─── Outline generation (Sprint 2 wire-up) ─────────────────────
 
 	app.post("/sessions/:sessionId/outline", {
@@ -402,39 +457,58 @@ IMPORTANT: Do NOT mention "Crossian", "PATTERN HINTS", "framework", "RAG", or an
 					const text = (llmResult as { text?: string }).text ?? "";
 					costUsd = (llmResult as { costUsd?: number }).costUsd ?? 0;
 
-					// Parse JSON (LLM may return with leading/trailing whitespace or fences).
-					const jsonStart = text.indexOf("{");
-					const jsonEnd = text.lastIndexOf("}");
-					if (jsonStart === -1 || jsonEnd === -1) {
-						throw new Error("LLM did not return JSON object");
+					const parsed = parseOutlineLLMResponse(text);
+					if (!parsed) {
+						throw new Error(
+							`LLM returned non-parseable response (len=${text.length}, head="${text.slice(0, 200).replace(/\n/g, " ")}")`,
+						);
 					}
-					const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+					if (!Array.isArray(parsed.scenes) || parsed.scenes.length === 0) {
+						throw new Error(
+							`LLM JSON parsed but missing scenes array (keys=${Object.keys(parsed).join(",")})`,
+						);
+					}
+					const chips = (parsed.suggestedChips ?? {}) as {
+						audiences?: unknown;
+						lookFeel?: unknown;
+						platform?: unknown;
+					};
 					outline = {
 						title: String(parsed.title ?? "Untitled"),
-						scenes: Array.isArray(parsed.scenes)
-							? parsed.scenes.map((s: Record<string, unknown>, i: number) => ({
-									id: String(s["id"] ?? `scene-${i + 1}`),
-									order: Number(s["order"] ?? i + 1),
-									script: String(s["script"] ?? ""),
-									mediaQuery: String(s["mediaQuery"] ?? ""),
-									durationSec: Number(s["durationSec"] ?? totalSec / sceneCount),
-								}))
-							: [],
+						scenes: parsed.scenes.map((s: Record<string, unknown>, i: number) => ({
+							id: String(s["id"] ?? `scene-${i + 1}`),
+							order: Number(s["order"] ?? i + 1),
+							script: String(s["script"] ?? ""),
+							mediaQuery: String(s["mediaQuery"] ?? ""),
+							durationSec: Number(s["durationSec"] ?? totalSec / sceneCount),
+						})),
 						suggestedChips: {
-							audiences: Array.isArray(parsed.suggestedChips?.audiences)
-								? parsed.suggestedChips.audiences.slice(0, 3).map(String)
+							audiences: Array.isArray(chips.audiences)
+								? chips.audiences.slice(0, 3).map(String)
 								: ["genz-tiktok"],
-							lookFeel: Array.isArray(parsed.suggestedChips?.lookFeel)
-								? parsed.suggestedChips.lookFeel.slice(0, 2).map(String)
+							lookFeel: Array.isArray(chips.lookFeel)
+								? chips.lookFeel.slice(0, 2).map(String)
 								: ["ad-style"],
 							platform: String(
-								parsed.suggestedChips?.platform ??
+								chips.platform ??
 									(workflow.platform.ratio === "9:16" ? "tiktok" : "youtube-long"),
 							),
 						},
 					};
+					req.log.info(
+						{
+							sessionId: session.id,
+							sceneCount: outline.scenes.length,
+							costUsd,
+							durationMs,
+						},
+						"outline LLM success",
+					);
 				} catch (err) {
-					req.log.error({ err }, "outline LLM call failed — falling back to mock");
+					req.log.warn(
+						{ err: err instanceof Error ? err.message : String(err), sessionId: session.id },
+						"outline LLM call failed — falling back to mock",
+					);
 					outline = generateMockOutline(workflow, session.prompt);
 				}
 			} else {

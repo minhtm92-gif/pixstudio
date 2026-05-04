@@ -192,6 +192,22 @@ export const quickCreateApi = {
 		);
 	},
 
+	/**
+	 * Persist build-completion notification preference to session config.
+	 * Worker reads notify flag and pushes when COMPLETED. v1 wires PATCH /config
+	 * with merged configOverrides; future Sprint adds dedicated /notify endpoint.
+	 */
+	async setNotifyPreference(sessionId: string, enabled: boolean, token?: string) {
+		return apiFetch<{ id: string }>(
+			`/api/quick-create/sessions/${sessionId}/notify`,
+			{
+				method: "PATCH",
+				body: JSON.stringify({ enabled }),
+			},
+			token,
+		);
+	},
+
 	async listWorkflows(token: string, tier: "standard" | "pro" | "max" = "standard") {
 		return apiFetch<{ items: WorkflowSummary[] }>(
 			`/api/quick-create/workflows?tier=${tier}`,

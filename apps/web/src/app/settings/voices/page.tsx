@@ -11,7 +11,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Play, Pause, Filter } from "lucide-react";
 import { PageShell } from "@/components/pixstudio/page-shell";
-import { API_BASE, apiFetch, type PixStudioUser } from "@/lib/api-client";
+import { API_BASE, apiFetch } from "@/lib/api-client";
+import { useAuthUser } from "@/hooks/use-auth-user";
 
 interface Voice {
 	voiceId: string;
@@ -25,18 +26,12 @@ interface Voice {
 	accent: string | null;
 }
 
-const STUB_USER: PixStudioUser = {
-	name: "Demo",
-	tier: "PRO",
-	buildsUsed: 0,
-	buildsLimit: 50,
-};
-
 const PREVIEW_CAP = 10;
 const PREVIEW_TEXT_VN = "Xin chào, đây là giọng đọc thử. Cảm ơn anh đã chọn PixStudio.";
 const PREVIEW_TEXT_EN = "Hello, this is a voice preview. Thanks for choosing PixStudio.";
 
 export default function VoicesPage() {
+	const { user } = useAuthUser();
 	const [voices, setVoices] = useState<Voice[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -126,7 +121,7 @@ export default function VoicesPage() {
 	};
 
 	return (
-		<PageShell user={STUB_USER}>
+		<PageShell user={user}>
 			<div className="px-8 pt-6">
 				<div className="mb-2 font-mono text-xs text-white/50">Home / Settings / Voices</div>
 				<div className="flex items-start justify-between gap-4">

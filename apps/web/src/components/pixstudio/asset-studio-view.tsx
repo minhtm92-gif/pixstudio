@@ -42,12 +42,12 @@ interface MusicTrack {
 	tags: string[];
 }
 
-const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode; count: number }> = [
-	{ id: "video", label: "Video", icon: <Film className="h-4 w-4" />, count: 128 },
-	{ id: "image", label: "Image", icon: <ImageIcon className="h-4 w-4" />, count: 412 },
-	{ id: "character", label: "Character", icon: <UserIcon className="h-4 w-4" />, count: 8 },
-	{ id: "music", label: "Music", icon: <MusicIcon className="h-4 w-4" />, count: 76 },
-	{ id: "script", label: "Script & Templates", icon: <FileText className="h-4 w-4" />, count: 23 },
+const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
+	{ id: "video", label: "Video", icon: <Film className="h-4 w-4" /> },
+	{ id: "image", label: "Image", icon: <ImageIcon className="h-4 w-4" /> },
+	{ id: "character", label: "Character", icon: <UserIcon className="h-4 w-4" /> },
+	{ id: "music", label: "Music", icon: <MusicIcon className="h-4 w-4" /> },
+	{ id: "script", label: "Script & Templates", icon: <FileText className="h-4 w-4" /> },
 ];
 
 interface AssetStudioViewProps {
@@ -66,7 +66,7 @@ export function AssetStudioView({ user }: AssetStudioViewProps) {
 	const [tab, setTab] = useState<Tab>("video");
 	const [source, setSource] = useState<SourceFilter>("all");
 	const [search, setSearch] = useState("");
-	const [_realAssets, setRealAssets] = useState<AssetRow[]>([]);
+	const [realAssets, setRealAssets] = useState<AssetRow[]>([]);
 	const [usingMock, setUsingMock] = useState(true);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
@@ -124,27 +124,34 @@ export function AssetStudioView({ user }: AssetStudioViewProps) {
 
 				{/* Tabs */}
 				<div className="mt-6 flex gap-1 border-b border-white/10 px-8">
-					{TABS.map((t) => (
-						<button
-							key={t.id}
-							onClick={() => setTab(t.id)}
-							className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-3 text-sm transition-colors ${
-								tab === t.id
-									? "border-[#3B82F6] font-medium text-white"
-									: "border-transparent text-white/50 hover:text-white"
-							}`}
-						>
-							{t.icon}
-							{t.label}
-							<span
-								className={`rounded-full px-2 py-0.5 text-[10px] ${
-									tab === t.id ? "bg-[#3B82F6]/15 text-[#60A5FA]" : "bg-zinc-900 text-white/50"
+					{TABS.map((t) => {
+						const isActive = tab === t.id;
+						const activeCount =
+							isActive && t.id === "music"
+								? musicTracks.length
+								: isActive && t.id !== "music"
+									? realAssets.length
+									: null;
+						return (
+							<button
+								key={t.id}
+								onClick={() => setTab(t.id)}
+								className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-3 text-sm transition-colors ${
+									isActive
+										? "border-[#3B82F6] font-medium text-white"
+										: "border-transparent text-white/50 hover:text-white"
 								}`}
 							>
-								{t.count}
-							</span>
-						</button>
-					))}
+								{t.icon}
+								{t.label}
+								{activeCount !== null && (
+									<span className="rounded-full bg-[#3B82F6]/15 px-2 py-0.5 text-[10px] text-[#60A5FA]">
+										{activeCount}
+									</span>
+								)}
+							</button>
+						);
+					})}
 				</div>
 
 				{/* Toolbar */}
