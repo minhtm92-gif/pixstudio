@@ -26,6 +26,8 @@ import { agentRoutes } from "./routes/agent.js";
 import { voicesRoutes } from "./routes/voices.js";
 import { captionsRoutes } from "./routes/captions.js";
 import { stockRoutes } from "./routes/stock.js";
+import { multiAspectRoutes } from "./routes/multi-aspect.js";
+import { templatesRoutes } from "./routes/templates.js";
 import aiMeshPlugin from "./plugins/ai-mesh.js";
 import prismaPlugin from "./plugins/prisma.js";
 import r2Plugin from "./plugins/r2.js";
@@ -109,6 +111,8 @@ await app.register(agentRoutes, { prefix: "/api/agent" });
 await app.register(voicesRoutes, { prefix: "/api/voices" });
 await app.register(captionsRoutes, { prefix: "/api/captions" });
 await app.register(stockRoutes, { prefix: "/api/stock" });
+await app.register(multiAspectRoutes, { prefix: "/api/multi-aspect" });
+await app.register(templatesRoutes, { prefix: "/api/templates" });
 
 const PORT = apiEnv.PORT;
 const HOST = apiEnv.HOST;
