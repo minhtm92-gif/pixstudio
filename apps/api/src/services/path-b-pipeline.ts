@@ -241,6 +241,18 @@ const SCENE_DETECT_THRESHOLD_BY_TIER: Record<"STANDARD" | "PRO" | "MAX", number>
  */
 const MIN_SCENE_DURATION_SEC = 5;
 
+/**
+ * Per-video duration cap, tier-aware. Beyond this length the editor UX degrades
+ * (too many scenes, slow stage 6, expensive TTS regen on script edits) and the
+ * monthly Path B quota (D32: Standard 5/Pro 30/Max 120 min/mo) can be drained
+ * by a single submission.
+ */
+const PER_VIDEO_DURATION_CAP_SEC_BY_TIER: Record<"STANDARD" | "PRO" | "MAX", number> = {
+	STANDARD: 5 * 60,
+	PRO: 15 * 60,
+	MAX: 30 * 60,
+};
+
 function mergeShortScenes(scenes: SceneBoundary[]): SceneBoundary[] {
 	if (scenes.length <= 1) return scenes;
 	const merged: SceneBoundary[] = [];
@@ -275,6 +287,13 @@ async function stage2DetectScenes(workDir: string, ctx: PipelineContext): Promis
 		30_000,
 	);
 	const totalDuration = parseFloat(probe.stdout.trim()) || 30;
+
+	const cap = PER_VIDEO_DURATION_CAP_SEC_BY_TIER[tier];
+	if (totalDuration > cap) {
+		throw new Error(
+			`Video duration ${Math.ceil(totalDuration / 60)}min exceeds per-video cap ${cap / 60}min for ${tier} tier. Trim source or upgrade tier.`,
+		);
+	}
 
 	// Run scene detection — output goes to stderr.
 	let sceneStderr = "";
