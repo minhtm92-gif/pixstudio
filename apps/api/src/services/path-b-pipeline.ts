@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import type { S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { PrismaClient } from "@prisma/client";
 import { runDemucs } from "./replicate-client.js";
 import { apiEnv } from "../env.js";
@@ -402,9 +403,16 @@ async function stage4Demucs(audioR2Key: string, ctx: PipelineContext): Promise<P
 
 	ctx.logger.info({ jobId: ctx.jobId }, "stage 4 — Replicate Demucs stem separation");
 	try {
-		// Construct R2 public URL (presigned would need separate import — skipping
-		// for v1 since R2 buckets often have public read for derived/ folder)
-		const audioUrl = `https://${ctx.r2Buckets.derived}.r2.cloudflarestorage.com/${audioR2Key}`;
+		// Replicate fetches the audio over HTTPS — R2 rejects anonymous reads
+		// (SSLV3_ALERT_HANDSHAKE_FAILURE), so generate a presigned GET URL.
+		const command = new GetObjectCommand({
+			Bucket: ctx.r2Buckets.derived,
+			Key: audioR2Key,
+		});
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const audioUrl = await getSignedUrl(ctx.r2 as any, command as any, {
+			expiresIn: 3600,
+		});
 		const result = await runDemucs(audioUrl);
 		ctx.logger.info({ predictionId: result.predictionId, durationSec: result.durationSec }, "stage 4 done");
 		return result.output;
