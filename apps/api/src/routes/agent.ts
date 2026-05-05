@@ -1,20 +1,38 @@
 /**
- * PixStudio Agent — context-aware chat helper for editor (Sprint 46).
+ * PixStudio Agent — context-aware chat helper for editor (Sprint 46+).
  *
- *   POST /api/agent/chat — single-turn LLM with project context injected
- *
- * Reads project editor state + user prompt → returns reply + optional
- * structured action proposals (frontend renders as clickable buttons).
+ *   POST /api/agent/chat       — single-turn LLM with project context injected
+ *   POST /api/agent/brainstorm — workspace-level brainstorm (no project context)
+ *                                Used by Editor Inspector "AI" tab + Quick Create
+ *                                Hero pre-flight idea expansion.
+ *   POST /api/agent/voice-input — Web Speech API alternative — accepts audio
+ *                                  blob → ElevenLabs Scribe → returns transcribed
+ *                                  prompt for downstream textarea fill.
  */
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { requireUser, requireWorkspaceMember } from "../plugins/require-auth.js";
 
 const ChatBodySchema = z.object({
 	projectId: z.string().uuid(),
 	prompt: z.string().min(2).max(2000),
 	selectedSegmentId: z.string().optional(),
+});
+
+const BrainstormBodySchema = z.object({
+	workspaceId: z.string().uuid(),
+	prompt: z.string().min(2).max(2000),
+	intent: z
+		.enum(["expand-idea", "rewrite-script", "suggest-hooks", "generate-titles"])
+		.default("expand-idea"),
+});
+
+const VoiceInputBodySchema = z.object({
+	audioR2Key: z.string().min(1),
+	bucket: z.enum(["uploads", "derived"]).default("uploads"),
+	languageCode: z.string().min(2).max(5).default("vi"),
 });
 
 interface AgentResponse {
@@ -120,8 +138,15 @@ User prompt: ${req.body.prompt}`;
 					} as never,
 					{ tier: "pro", workspaceId: project.workspaceId, userId: user.id } as never,
 				);
-				const text = (result as { text?: string }).text ?? "";
-				const cost = (result as { costUsd?: number }).costUsd ?? 0;
+				// Bug fix (S14 audit cascade): AI router shape is
+				// { providerId, costUsd, durationMs, mode, output: { text, ... } }.
+				const wrapped = result as {
+					output?: { text?: string };
+					text?: string;
+					costUsd?: number;
+				};
+				const text = wrapped.output?.text ?? wrapped.text ?? "";
+				const cost = wrapped.costUsd ?? 0;
 
 				const jsonStart = text.indexOf("{");
 				const jsonEnd = text.lastIndexOf("}");
@@ -144,6 +169,150 @@ User prompt: ${req.body.prompt}`;
 				req.log.error({ err }, "Agent LLM failed");
 				reply.code(502);
 				return { error: err instanceof Error ? err.message : "LLM error" };
+			}
+		},
+	});
+
+	// === S21 PW-28: Brainstorming AI panel ===
+	// Workspace-level brainstorm (no project context). Editor Inspector "AI" tab
+	// + Quick Create Hero idea expansion both call this.
+	app.post("/brainstorm", {
+		schema: { body: BrainstormBodySchema },
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return { error: "Unauthorized" };
+			if (!app.aiRouter) {
+				reply.code(503);
+				return { error: "AI router not configured" };
+			}
+
+			const intentPrompts: Record<typeof req.body.intent, string> = {
+				"expand-idea":
+					"Mở rộng ý tưởng cho creator video tiếng Việt. Đưa ra 3-5 hướng phát triển + góc nhìn khả thi cho TikTok/Reel/YouTube. Mỗi hướng 2-3 câu.",
+				"rewrite-script":
+					"Viết lại script video sao cho ngắn gọn, voice-friendly, tone tự nhiên người Việt. Giữ key message, expand viết tắt + abbreviation.",
+				"suggest-hooks":
+					"Đề xuất 5 hook 3 giây đầu video cho creator Việt Nam. Mỗi hook 1 câu, đa dạng tone (emotional / problem-solution / curiosity / identity / gift).",
+				"generate-titles":
+					"Tạo 8 title video viral cho TikTok/Facebook Reel — mix hook word + benefit + urgency. Mỗi title <60 ký tự.",
+			};
+
+			const systemPrompt = `Bạn là PixStudio Brainstorming Agent — partner sáng tạo cho Vietnamese video creator.
+
+INTENT: ${intentPrompts[req.body.intent]}
+
+USER PROMPT:
+${req.body.prompt}
+
+OUTPUT FORMAT (JSON):
+{
+  "reply": "câu trả lời chính (markdown ok)",
+  "suggestions": [
+    { "title": "ngắn gọn", "body": "chi tiết 1-2 câu" }
+  ]
+}`;
+
+			try {
+				const { result } = await app.aiRouter.invoke(
+					"llm.chat" as never,
+					{
+						prompt: systemPrompt,
+						maxTokens: 1200,
+						temperature: 0.85,
+						responseFormat: "json_object",
+					} as never,
+					{ tier: "pro", workspaceId: req.body.workspaceId, userId: user.id } as never,
+				);
+				const wrapped = result as {
+					output?: { text?: string };
+					text?: string;
+					costUsd?: number;
+				};
+				const text = wrapped.output?.text ?? wrapped.text ?? "";
+				const cost = wrapped.costUsd ?? 0;
+				const jsonStart = text.indexOf("{");
+				const jsonEnd = text.lastIndexOf("}");
+				if (jsonStart === -1 || jsonEnd === -1) {
+					return {
+						reply: text || "Em không nghe rõ — anh hỏi lại nha.",
+						suggestions: [],
+						costUsd: cost,
+						intent: req.body.intent,
+					};
+				}
+				const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1)) as {
+					reply?: string;
+					suggestions?: Array<{ title?: string; body?: string }>;
+				};
+				return {
+					reply: parsed.reply ?? text,
+					suggestions: parsed.suggestions ?? [],
+					costUsd: cost,
+					intent: req.body.intent,
+				};
+			} catch (err) {
+				req.log.error({ err }, "Brainstorm LLM failed");
+				reply.code(502);
+				return { error: err instanceof Error ? err.message : "LLM error" };
+			}
+		},
+	});
+
+	// === S21 QC-2: Voice input transcription ===
+	// Frontend records audio via MediaRecorder → uploads to R2 → calls this →
+	// receives transcribed text → fills Hero textarea. Better than Web Speech API
+	// for Vietnamese (Web Speech VN support is unreliable).
+	app.post("/voice-input", {
+		schema: { body: VoiceInputBodySchema },
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return { error: "Unauthorized" };
+			if (!app.aiRouter) {
+				reply.code(503);
+				return { error: "AI router not configured" };
+			}
+			if (!app.r2) {
+				reply.code(503);
+				return { error: "R2 not configured" };
+			}
+			const bucketName =
+				req.body.bucket === "derived" ? app.r2Buckets.derived : app.r2Buckets.uploads;
+			try {
+				const obj = await app.r2.send(
+					new GetObjectCommand({ Bucket: bucketName, Key: req.body.audioR2Key }),
+				);
+				if (!obj.Body) {
+					reply.code(404);
+					return { error: "Audio R2 object empty" };
+				}
+				const chunks: Uint8Array[] = [];
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				for await (const chunk of obj.Body as any) chunks.push(chunk as Uint8Array);
+				const buf = Buffer.concat(chunks);
+				const audioBlob = new Blob([buf], { type: "audio/mpeg" });
+				const { result } = await app.aiRouter.invoke(
+					"stt.transcribe" as never,
+					{
+						audioBlob,
+						languageCode: req.body.languageCode,
+						diarize: false,
+						timestampsGranularity: "none",
+					} as never,
+					{ tier: "pro", workspaceId: "", userId: user.id } as never,
+				);
+				const wrapped = result as {
+					output?: { text?: string };
+					costUsd?: number;
+				};
+				return {
+					text: wrapped.output?.text ?? "",
+					costUsd: wrapped.costUsd ?? 0,
+					languageCode: req.body.languageCode,
+				};
+			} catch (err) {
+				req.log.error({ err }, "Voice input transcribe failed");
+				reply.code(502);
+				return { error: err instanceof Error ? err.message : "Scribe error" };
 			}
 		},
 	});
