@@ -192,6 +192,7 @@ model Project {
   assets             Asset[]
   quickCreateSessions QuickCreateSession[]
   versions           ProjectVersion[]
+  comments           ProjectComment[]
 
   @@index([workspaceId])
   @@index([lastEditedAt])
@@ -218,6 +219,40 @@ model ProjectVersion {
   @@unique([projectId, versionNumber])
   @@index([projectId, createdAt])
   @@map("project_versions")
+}
+
+// =============================================================================
+// PROJECT COMMENT (Sprint S26 — Frame.io-style timestamped comments, PW-30)
+// =============================================================================
+
+model ProjectComment {
+  id              String         @id @default(uuid())
+  projectId       String
+  authorId        String         // user.id
+  /** Optional segment to anchor comment to. */
+  segmentId       String?
+  /** Optional video timestamp (sec). */
+  timestampSec    Decimal?       @db.Decimal(10, 3)
+  body            String         // markdown supported
+  status          CommentStatus  @default(OPEN)
+  parentCommentId String?        // for threaded replies (1-level)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  resolvedAt      DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent  ProjectComment? @relation("CommentThread", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies ProjectComment[] @relation("CommentThread")
+
+  @@index([projectId, createdAt])
+  @@index([projectId, status])
+  @@map("project_comments")
+}
+
+enum CommentStatus {
+  OPEN
+  RESOLVED
+  ARCHIVED
 }
 
 // =============================================================================

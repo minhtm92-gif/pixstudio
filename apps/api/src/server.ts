@@ -29,6 +29,7 @@ import { captionsRoutes } from "./routes/captions.js";
 import { stockRoutes } from "./routes/stock.js";
 import { multiAspectRoutes } from "./routes/multi-aspect.js";
 import { templatesRoutes } from "./routes/templates.js";
+import { commentsRoutes } from "./routes/comments.js";
 import aiMeshPlugin from "./plugins/ai-mesh.js";
 import prismaPlugin from "./plugins/prisma.js";
 import r2Plugin from "./plugins/r2.js";
@@ -117,6 +118,7 @@ await app.register(captionsRoutes, { prefix: "/api/captions" });
 await app.register(stockRoutes, { prefix: "/api/stock" });
 await app.register(multiAspectRoutes, { prefix: "/api/multi-aspect" });
 await app.register(templatesRoutes, { prefix: "/api/templates" });
+await app.register(commentsRoutes, { prefix: "/api/projects" });
 
 const PORT = apiEnv.PORT;
 const HOST = apiEnv.HOST;
