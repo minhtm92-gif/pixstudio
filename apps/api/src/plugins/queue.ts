@@ -13,14 +13,25 @@ import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import IORedis from "ioredis";
 import { Queue, Worker, type Job } from "bullmq";
+import {
+	runPathBPipeline,
+	JobCancelledError,
+} from "../services/path-b-pipeline.js";
+import {
+	buildPathBEditorState,
+	secondsToQuotaMinutes,
+} from "../services/path-b-editor-state.js";
+import { incrementPathBMinutes } from "../services/tier-quota.js";
 
 declare module "fastify" {
 	interface FastifyInstance {
 		redis: IORedis;
 		queues: {
 			quickCreateBuild: Queue;
+			pathBExtract: Queue;
 		};
 		startQuickCreateBuildWorker: () => Worker;
+		startPathBExtractWorker: () => Worker;
 	}
 }
 
@@ -34,6 +45,21 @@ export interface QuickCreateBuildJobReturn {
 	projectId: string;
 	totalCostUsd: number;
 	totalDurationMs: number;
+}
+
+export interface PathBExtractJobData {
+	jobId: string;
+	sessionId: string;
+	workspaceId: string;
+	userId: string;
+	sourceUrl: string;
+	tier: "STANDARD" | "PRO" | "MAX";
+}
+
+export interface PathBExtractJobReturn {
+	jobId: string;
+	scenes: number;
+	durationSec: number;
 }
 
 const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
@@ -73,7 +99,22 @@ const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
 		},
 	);
 
-	app.decorate("queues", { quickCreateBuild });
+	const pathBExtract = new Queue<PathBExtractJobData, PathBExtractJobReturn>(
+		"path-b-extract",
+		{
+			connection: redis,
+			defaultJobOptions: {
+				// 1 retry — pipeline downloads ~70MB videos + multiple AI calls per
+				// stage, so a 2nd attempt is worth it but 3rd usually wastes quota.
+				attempts: 2,
+				backoff: { type: "exponential", delay: 5000 },
+				removeOnComplete: { count: 50, age: 24 * 60 * 60 },
+				removeOnFail: { count: 100, age: 7 * 24 * 60 * 60 },
+			},
+		},
+	);
+
+	app.decorate("queues", { quickCreateBuild, pathBExtract });
 
 	app.decorate("startQuickCreateBuildWorker", () => {
 		const worker = new Worker<QuickCreateBuildJobData, QuickCreateBuildJobReturn>(
@@ -96,12 +137,30 @@ const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
 		return worker;
 	});
 
+	app.decorate("startPathBExtractWorker", () => {
+		const worker = new Worker<PathBExtractJobData, PathBExtractJobReturn>(
+			"path-b-extract",
+			async (job) => processPathBJob(app, job),
+			// concurrency=1: each job downloads + processes ~70MB on tmpfs and
+			// runs FFmpeg at high CPU. Parallelism would OOM the 1GB Fly machine.
+			{ connection: redis, concurrency: 1 },
+		);
+		worker.on("failed", (job, err) => {
+			app.log.error({ jobId: job?.id, err }, "path-b-extract worker job failed");
+		});
+		worker.on("completed", (job, ret) => {
+			app.log.info({ jobId: job.id, ret }, "path-b-extract worker job completed");
+		});
+		return worker;
+	});
+
 	app.addHook("onClose", async () => {
 		await quickCreateBuild.close();
+		await pathBExtract.close();
 		await redis.quit();
 	});
 
-	app.log.info("BullMQ queue ready: quick-create-build");
+	app.log.info("BullMQ queue ready: quick-create-build, path-b-extract");
 };
 
 /**
@@ -595,6 +654,67 @@ Return JSON ONLY: {"scenes":[{"id":"scene-1","script":"polished text"},...]}`;
 				totalDurationMs: Date.now() - startedAt,
 			};
 		}
+		throw err;
+	}
+}
+
+/**
+ * Path B reverse-engineer worker — replaces fire-and-forget background promise
+ * (which the Fly autostop killer was orphaning at random progress points).
+ * BullMQ persists the job to Redis so a machine death = retry on next worker.
+ */
+async function processPathBJob(
+	app: FastifyInstance,
+	job: Job<PathBExtractJobData, PathBExtractJobReturn>,
+): Promise<PathBExtractJobReturn> {
+	const { jobId, sessionId, workspaceId, sourceUrl, tier } = job.data;
+	try {
+		const extraction = await runPathBPipeline({
+			jobId,
+			sessionId,
+			sourceUrl,
+			tier,
+			prisma: app.prisma,
+			r2: app.r2 ?? null,
+			r2Buckets: app.r2Buckets,
+			logger: app.log,
+		});
+		const editorState = buildPathBEditorState(extraction);
+		await app.prisma.reverseEngineerJob.update({
+			where: { id: jobId },
+			data: {
+				status: "COMPLETED",
+				progress: 100,
+				completedAt: new Date(),
+				outputEditorStateJson: editorState as never,
+			},
+		});
+		const minutes = secondsToQuotaMinutes(editorState.duration);
+		await incrementPathBMinutes(app.prisma, workspaceId, minutes);
+		app.log.info(
+			{ jobId, scenes: extraction.scenes.length, minutes },
+			"path-b pipeline complete (worker)",
+		);
+		return {
+			jobId,
+			scenes: extraction.scenes.length,
+			durationSec: editorState.duration,
+		};
+	} catch (err) {
+		if (err instanceof JobCancelledError) {
+			app.log.info({ jobId }, "path-b pipeline exited (cancelled)");
+			return { jobId, scenes: 0, durationSec: 0 };
+		}
+		app.log.error({ jobId, err: String(err) }, "path-b pipeline FAILED (worker)");
+		await app.prisma.reverseEngineerJob.update({
+			where: { id: jobId },
+			data: {
+				status: "FAILED",
+				errorMessage: err instanceof Error
+					? err.message.slice(0, 1000)
+					: String(err).slice(0, 1000),
+			},
+		});
 		throw err;
 	}
 }

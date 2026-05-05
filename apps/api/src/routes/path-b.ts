@@ -11,12 +11,6 @@ import { z } from "zod";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireUser, requireAdmin } from "../plugins/require-auth.js";
-import { runPathBPipeline } from "../services/path-b-pipeline.js";
-import {
-	buildPathBEditorState,
-	secondsToQuotaMinutes,
-} from "../services/path-b-editor-state.js";
-import { incrementPathBMinutes } from "../services/tier-quota.js";
 
 export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 	// POST /source-uploads/presign — Path B manual MP4 upload (SCOPE §13 D37
@@ -176,52 +170,30 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 				data: { status: "DOWNLOADING", progress: 1 },
 			});
 
-			const sourceUrl = job.sourceUrl;
-			const workspaceId = job.workspaceId;
 			// S15: pull workspace tier for scene-detect sensitivity tuning.
 			const ws = await app.prisma.workspace.findUnique({
-				where: { id: workspaceId },
+				where: { id: job.workspaceId },
 				select: { billingTier: true },
 			});
 			const tier = (ws?.billingTier ?? "PRO") as "STANDARD" | "PRO" | "MAX";
-			void (async () => {
-				try {
-					const extraction = await runPathBPipeline({
+			// B4: enqueue to BullMQ — see processPathBJob in plugins/queue.ts.
+			if (app.queues?.pathBExtract) {
+				await app.queues.pathBExtract.add(
+					"extract",
+					{
 						jobId: job.id,
 						sessionId: job.sessionId,
-						sourceUrl,
+						workspaceId: job.workspaceId,
+						userId: user.id,
+						sourceUrl: job.sourceUrl,
 						tier,
-						prisma: app.prisma,
-						r2: app.r2 ?? null,
-						r2Buckets: app.r2Buckets,
-						logger: app.log,
-					});
-					const editorState = buildPathBEditorState(extraction);
-					await app.prisma.reverseEngineerJob.update({
-						where: { id: job.id },
-						data: {
-							status: "COMPLETED",
-							progress: 100,
-							completedAt: new Date(),
-							outputEditorStateJson: editorState as never,
-						},
-					});
-					await incrementPathBMinutes(
-						app.prisma,
-						workspaceId,
-						secondsToQuotaMinutes(editorState.duration),
-					);
-				} catch (err) {
-					app.log.error({ jobId: job.id, err }, "Path B pipeline failed");
-					await app.prisma.reverseEngineerJob.update({
-						where: { id: job.id },
-						data: {
-							status: "FAILED",
-							errorMessage: err instanceof Error ? err.message : String(err),
-						},
-					});
-				}
-			})();
+					},
+					{ jobId: job.id },
+				);
+			} else {
+				reply.code(503);
+				return { error: "BullMQ queue unavailable" };
+			}
 
 			reply.code(202);
 			return {

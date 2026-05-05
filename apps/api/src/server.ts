@@ -136,10 +136,14 @@ const HOST = apiEnv.HOST;
 try {
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`PixStudio API listening on http://${HOST}:${PORT}`);
-  // Start BullMQ worker (in-process Sprint 2.5; dedicate worker process Sprint 4+)
+  // Start BullMQ workers (in-process Sprint 2.5; dedicate worker process Sprint 4+)
   if (typeof app.startQuickCreateBuildWorker === "function") {
     app.startQuickCreateBuildWorker();
     app.log.info("BullMQ worker started: quick-create-build");
+  }
+  if (typeof app.startPathBExtractWorker === "function") {
+    app.startPathBExtractWorker();
+    app.log.info("BullMQ worker started: path-b-extract");
   }
 } catch (err) {
   app.log.error(err);

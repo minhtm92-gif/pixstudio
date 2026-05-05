@@ -12,16 +12,10 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { workflowRegistry, isCrossianRagEligible } from "@pixstudio/quick-create";
 import type { Language } from "@pixstudio/quick-create";
 import { requireUser } from "../plugins/require-auth.js";
-import { runPathBPipeline, JobCancelledError } from "../services/path-b-pipeline.js";
-import {
-	buildPathBEditorState,
-	secondsToQuotaMinutes,
-} from "../services/path-b-editor-state.js";
 import {
 	checkBuildQuota,
 	checkPathBQuota,
 	incrementBuildCount,
-	incrementPathBMinutes,
 } from "../services/tier-quota.js";
 import { enrichHeroAttachments } from "../services/hero-attachment-enrichment.js";
 
@@ -323,59 +317,33 @@ export const quickCreateRoutes: FastifyPluginAsyncZod = async (app) => {
 						"path-b job auto-trigger pipeline",
 					);
 
-					// Fire-and-forget pipeline. Status updates happen inside runPathBPipeline.
-					const sourceUrl = persistedSource;
-					const workspaceId = req.body.workspaceId;
 					// S15: workspace tier → tier-aware scene threshold.
 					const ws = await app.prisma.workspace.findUnique({
-						where: { id: workspaceId },
+						where: { id: req.body.workspaceId },
 						select: { billingTier: true },
 					});
 					const tier = (ws?.billingTier ?? "PRO") as "STANDARD" | "PRO" | "MAX";
-					void (async () => {
-						try {
-							const extraction = await runPathBPipeline({
+					// B4: enqueue to BullMQ so a Fly machine restart mid-pipeline
+					// retries instead of orphaning the job.
+					if (app.queues?.pathBExtract) {
+						await app.queues.pathBExtract.add(
+							"extract",
+							{
 								jobId: job.id,
 								sessionId: session.id,
-								sourceUrl,
+								workspaceId: req.body.workspaceId,
+								userId: user.id,
+								sourceUrl: persistedSource,
 								tier,
-								prisma: app.prisma,
-								r2: app.r2 ?? null,
-								r2Buckets: app.r2Buckets,
-								logger: app.log,
-							});
-							const editorState = buildPathBEditorState(extraction);
-							await app.prisma.reverseEngineerJob.update({
-								where: { id: job.id },
-								data: {
-									status: "COMPLETED",
-									progress: 100,
-									completedAt: new Date(),
-									outputEditorStateJson: editorState as never,
-								},
-							});
-							// Increment quota tracker with actual source video minutes.
-							const actualMinutes = secondsToQuotaMinutes(editorState.duration);
-							await incrementPathBMinutes(app.prisma, workspaceId, actualMinutes);
-							app.log.info(
-								{ jobId: job.id, scenes: extraction.scenes.length, minutes: actualMinutes },
-								"path-b pipeline complete",
-							);
-						} catch (err) {
-							if (err instanceof JobCancelledError) {
-								app.log.info({ jobId: job.id }, "path-b pipeline exited (cancelled)");
-								return;
-							}
-							app.log.error({ jobId: job.id, err: String(err) }, "path-b pipeline FAILED");
-							await app.prisma.reverseEngineerJob.update({
-								where: { id: job.id },
-								data: {
-									status: "FAILED",
-									errorMessage: err instanceof Error ? err.message.slice(0, 1000) : String(err).slice(0, 1000),
-								},
-							});
-						}
-					})();
+							},
+							{ jobId: job.id },
+						);
+					} else {
+						req.log.warn(
+							{ jobId: job.id },
+							"BullMQ pathBExtract queue unavailable — job stays PENDING",
+						);
+					}
 				} catch (err) {
 					req.log.error({ err }, "failed to create reverse-engineer job");
 				}
