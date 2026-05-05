@@ -34,6 +34,7 @@ import r2Plugin from "./plugins/r2.js";
 import authPlugin from "./plugins/auth.js";
 import requireAuthPlugin from "./plugins/require-auth.js";
 import queuePlugin from "./plugins/queue.js";
+import collabPlugin from "./plugins/collab.js";
 
 const app = Fastify({
   genReqId: () => crypto.randomUUID(),
@@ -90,6 +91,7 @@ await app.register(requireAuthPlugin);
 await app.register(r2Plugin);
 await app.register(aiMeshPlugin);
 await app.register(queuePlugin);
+await app.register(collabPlugin);
 await app.register(healthRoutes, { prefix: "/health" });
 await app.register(projectsRoutes, { prefix: "/api/projects" });
 await app.register(workspacesRoutes, { prefix: "/api/workspaces" });
