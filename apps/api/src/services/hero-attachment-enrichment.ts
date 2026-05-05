@@ -10,7 +10,11 @@
  */
 
 import { GetObjectCommand, type S3Client } from "@aws-sdk/client-s3";
-import pdfParse from "pdf-parse";
+// pdf-parse@1.1.1 index.js runs debug code at import time
+// (`if (!module.parent) readFileSync('./test/data/05-versions-space.pdf')`)
+// which crashes on Bun where module.parent is null. Import the inner impl.
+// @ts-expect-error — @types/pdf-parse only declares the root module
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { apiEnv } from "../env.js";
 
 interface AttachmentRef {
