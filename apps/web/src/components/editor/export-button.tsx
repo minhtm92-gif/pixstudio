@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TransitionTopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { toast } from "sonner";
 import {
 	Popover,
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
@@ -34,6 +36,7 @@ import {
 } from "@/components/section";
 import { useEditor } from "@/editor/use-editor";
 import { DEFAULT_EXPORT_OPTIONS } from "@/export/defaults";
+import { apiFetch } from "@/lib/api-client";
 
 function isExportFormat(value: string): value is ExportFormat {
 	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
@@ -41,6 +44,23 @@ function isExportFormat(value: string): value is ExportFormat {
 
 function isExportQuality(value: string): value is ExportQuality {
 	return EXPORT_QUALITY_VALUES.some((qualityValue) => qualityValue === value);
+}
+
+interface PlatformPreset {
+	id: string;
+	platform: string;
+	label: string;
+	width: number;
+	height: number;
+	bitrateKbps: number;
+	notes: string;
+}
+
+function bitrateToQuality(kbps: number): ExportQuality {
+	if (kbps >= 7000) return "very_high";
+	if (kbps >= 5000) return "high";
+	if (kbps >= 3000) return "medium";
+	return "low";
 }
 
 export function ExportButton() {
@@ -110,6 +130,24 @@ function ExportPopover({
 	const [shouldIncludeAudio, setShouldIncludeAudio] = useState<boolean>(
 		DEFAULT_EXPORT_OPTIONS.includeAudio ?? true,
 	);
+	const [presets, setPresets] = useState<PlatformPreset[]>([]);
+
+	useEffect(() => {
+		// Surface 6 platform presets from backend so creators see TikTok/Reel/YT
+		// recommended specs. Click pre-selects format+quality; aspect ratio still
+		// follows project canvas (resize via D-2 multi-aspect, not in this popover).
+		apiFetch<{ presets: PlatformPreset[] }>("/api/export/presets")
+			.then((data) => setPresets(data.presets ?? []))
+			.catch(() => {});
+	}, []);
+
+	const applyPreset = (preset: PlatformPreset) => {
+		setFormat("mp4");
+		setQuality(bitrateToQuality(preset.bitrateKbps));
+		toast.info(preset.label, {
+			description: `${preset.width}×${preset.height} · ${preset.bitrateKbps}kbps. Aspect theo project canvas — dùng Multi-aspect repurpose nếu cần đổi tỉ lệ.`,
+		});
+	};
 
 	const handleExport = async () => {
 		if (!activeProject) return;
@@ -163,10 +201,40 @@ function ExportPopover({
 						{!isExporting && (
 							<>
 								<div className="flex flex-col">
+									{presets.length > 0 && (
+										<Section
+											collapsible
+											defaultOpen
+											showTopBorder={false}
+										>
+											<SectionHeader>
+												<SectionTitle>Platform preset</SectionTitle>
+											</SectionHeader>
+											<SectionContent>
+												<div className="flex flex-wrap gap-1.5">
+													{presets.map((p) => (
+														<button
+															key={p.id}
+															type="button"
+															onClick={() => applyPreset(p)}
+															className="cursor-pointer"
+														>
+															<Badge
+																variant="secondary"
+																className="text-xs hover:bg-primary/15"
+															>
+																{p.label}
+															</Badge>
+														</button>
+													))}
+												</div>
+											</SectionContent>
+										</Section>
+									)}
 									<Section
 										collapsible
 										defaultOpen={false}
-										showTopBorder={false}
+										showTopBorder={presets.length > 0}
 									>
 										<SectionHeader>
 											<SectionTitle>Format</SectionTitle>
