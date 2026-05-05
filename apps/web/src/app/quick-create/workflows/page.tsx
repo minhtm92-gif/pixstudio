@@ -7,7 +7,7 @@
 
 "use client";
 
-import { Suspense, useState, useTransition } from "react";
+import { Suspense, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Crown, Lock, Sparkles, Loader2, AlertCircle } from "lucide-react";
@@ -169,6 +169,14 @@ interface SessionResponse {
 	id: string;
 }
 
+interface CulturalBundle {
+	id: string;
+	holiday: "tet" | "trungthu" | "quockhanh" | "blackfriday";
+	labelVi: string;
+	emojiBadge: string;
+	suggestedTemplateIds: string[];
+}
+
 export default function WorkflowsPage() {
 	return (
 		<Suspense
@@ -193,7 +201,16 @@ function WorkflowsPageContent() {
 
 	const [error, setError] = useState<string | null>(null);
 	const [creatingId, setCreatingId] = useState<string | null>(null);
+	const [seasonalBundles, setSeasonalBundles] = useState<CulturalBundle[]>([]);
 	const [, startTransition] = useTransition();
+
+	useEffect(() => {
+		// Surface seasonal bundles active this month — Tết / Trung Thu / Quốc Khánh /
+		// Black Friday. Fails silently if backend down or user not authed.
+		apiFetch<{ items: CulturalBundle[] }>("/api/cultural-bundles/active")
+			.then((data) => setSeasonalBundles(data.items ?? []))
+			.catch(() => {});
+	}, []);
 
 	const handleSelect = async (workflowId: string) => {
 		setError(null);
@@ -260,6 +277,20 @@ function WorkflowsPageContent() {
 					<div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
 						<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
 						<span>{error}</span>
+					</div>
+				)}
+
+				{seasonalBundles.length > 0 && (
+					<div className="mb-6 flex flex-wrap items-center gap-2 rounded-md border border-amber-200/40 bg-amber-50/40 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/20">
+						<span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+							Đang mùa
+						</span>
+						{seasonalBundles.map((b) => (
+							<Badge key={b.id} variant="secondary" className="gap-1 text-xs">
+								<span>{b.emojiBadge}</span>
+								<span>{b.labelVi}</span>
+							</Badge>
+						))}
 					</div>
 				)}
 
