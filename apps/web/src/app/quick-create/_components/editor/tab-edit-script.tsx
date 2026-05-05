@@ -14,6 +14,7 @@ import { useState } from "react";
 import {
 	Mic,
 	Image as ImageIcon,
+	Languages,
 	RefreshCw,
 	Save,
 	Loader2,
@@ -66,6 +67,8 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 	const [error, setError] = useState<string | null>(null);
 	const [voicePickerSceneId, setVoicePickerSceneId] = useState<string | null>(null);
 	const [pausesEnabled, setPausesEnabled] = useState(true);
+	const [translateBusy, setTranslateBusy] = useState(false);
+	const [voiceOverBusy, setVoiceOverBusy] = useState(false);
 
 	const updateScene = (sceneId: string, patch: Partial<Scene>) => {
 		const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
@@ -156,6 +159,65 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 		setVoicePickerSceneId(null);
 	};
 
+	const handleTranslate = async (targetLang: "vi" | "en") => {
+		setError(null);
+		if (scenes.length === 0) return;
+		const sourceLang = targetLang === "vi" ? "en" : "vi";
+		setTranslateBusy(true);
+		try {
+			const payload = scenes.map((s) => ({
+				startSec: 0,
+				durationSec: s.durationSec,
+				text: s.script,
+			}));
+			const res = await apiFetch<{
+				segments: Array<{ text: string }>;
+			}>("/api/captions/translate", {
+				method: "POST",
+				body: JSON.stringify({ segments: payload, sourceLang, targetLang }),
+			});
+			const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
+			const updatedScenes = scenes.map((s, i) => ({
+				...s,
+				script: res.segments[i]?.text ?? s.script,
+				scriptChangedSinceTts: true,
+			}));
+			onUpdate({ ...editorState, timeline: { ...ts, scenes: updatedScenes } });
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Translate failed");
+		} finally {
+			setTranslateBusy(false);
+		}
+	};
+
+	const handleVoiceOver = async () => {
+		setError(null);
+		if (scenes.length === 0) return;
+		setVoiceOverBusy(true);
+		try {
+			const payload = scenes.map((s) => ({ text: s.script }));
+			const res = await apiFetch<{
+				signedUrl: string;
+				r2Key: string;
+				costUsd: number;
+			}>("/api/captions/voice-over", {
+				method: "POST",
+				body: JSON.stringify({ segments: payload, languageCode: "vi" }),
+			});
+			const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
+			onUpdate({
+				...editorState,
+				voiceOverR2Key: res.r2Key,
+				voiceOverSignedUrl: res.signedUrl,
+				timeline: { ...ts },
+			});
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Voice-over failed");
+		} finally {
+			setVoiceOverBusy(false);
+		}
+	};
+
 	const totalChanged = scenes.filter((s) => s.scriptChangedSinceTts).length;
 
 	return (
@@ -198,15 +260,59 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 						/>
 						<span>Auto pause "(ngừng)"</span>
 					</label>
-					<button
-						type="button"
-						onClick={() => void regenAllChanged()}
-						disabled={totalChanged === 0}
-						className="ml-auto rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-					>
-						Apply Changes (regen TTS · {totalChanged} scene
-						{totalChanged === 1 ? "" : "s"})
-					</button>
+					<div className="ml-auto flex items-center gap-2">
+						<button
+							type="button"
+							onClick={() => void handleTranslate("en")}
+							disabled={translateBusy || scenes.length === 0}
+							className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium hover:bg-muted disabled:opacity-40"
+							title="Dịch toàn bộ script sang English (DO Inference)"
+						>
+							{translateBusy ? (
+								<Loader2 className="h-3.5 w-3.5 animate-spin" />
+							) : (
+								<Languages className="h-3.5 w-3.5" />
+							)}
+							Translate → EN
+						</button>
+						<button
+							type="button"
+							onClick={() => void handleTranslate("vi")}
+							disabled={translateBusy || scenes.length === 0}
+							className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium hover:bg-muted disabled:opacity-40"
+							title="Dịch toàn bộ script sang Vietnamese (DO Inference)"
+						>
+							{translateBusy ? (
+								<Loader2 className="h-3.5 w-3.5 animate-spin" />
+							) : (
+								<Languages className="h-3.5 w-3.5" />
+							)}
+							Translate → VI
+						</button>
+						<button
+							type="button"
+							onClick={() => void handleVoiceOver()}
+							disabled={voiceOverBusy || scenes.length === 0}
+							className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium hover:bg-muted disabled:opacity-40"
+							title="Re-voice toàn bộ script qua ElevenLabs Multilingual v2"
+						>
+							{voiceOverBusy ? (
+								<Loader2 className="h-3.5 w-3.5 animate-spin" />
+							) : (
+								<Mic className="h-3.5 w-3.5" />
+							)}
+							Voice over
+						</button>
+						<button
+							type="button"
+							onClick={() => void regenAllChanged()}
+							disabled={totalChanged === 0}
+							className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+						>
+							Apply Changes (regen TTS · {totalChanged} scene
+							{totalChanged === 1 ? "" : "s"})
+						</button>
+					</div>
 				</div>
 				{error && (
 					<div className="mt-2 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
