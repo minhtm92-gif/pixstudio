@@ -223,4 +223,59 @@ export const workspacesRoutes: FastifyPluginAsyncZod = async (app) => {
       }
     },
   });
+
+  // GET /:id/usage — workspace usage tracker for current month (S23 X-6 wire).
+  // Used by frontend useAuthUser hook + admin KPI dashboard.
+  app.get("/:id/usage", {
+    schema: {
+      params: z.object({ id: z.string().uuid() }),
+    },
+    handler: async (req, reply) => {
+      const user = requireUser(req, reply);
+      if (!user) return;
+      const member = await app.prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId: req.params.id, userId: user.id } },
+        select: { role: true },
+      });
+      if (!member) {
+        reply.status(403);
+        return { error: "Not a member of this workspace" };
+      }
+      const ws = await app.prisma.workspace.findUnique({
+        where: { id: req.params.id },
+        select: { billingTier: true },
+      });
+      if (!ws) {
+        reply.status(404);
+        return { error: "Workspace not found" };
+      }
+      const monthYear = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+      const tracker = await app.prisma.usageTracker.upsert({
+        where: { workspaceId_monthYear: { workspaceId: req.params.id, monthYear } },
+        create: { workspaceId: req.params.id, monthYear },
+        update: {},
+      });
+
+      const { TIER_LIMITS } = await import("../services/tier-quota.js");
+      const tier = ws.billingTier as "STANDARD" | "PRO" | "MAX";
+      const limits = TIER_LIMITS[tier];
+
+      return {
+        workspaceId: req.params.id,
+        tier,
+        monthYear,
+        buildsCount: tracker.buildsCount,
+        buildsLimit: limits.buildsPerMonth,
+        pathBMinutes: Number(tracker.pathBMinutes),
+        pathBMinutesLimit: limits.pathBMinutesPerMonth,
+        voicePreviewsCount: tracker.voicePreviewsCount,
+        voicePreviewsLimit: 10,
+        totalCostUsd: Number(tracker.totalCostUsd),
+        exportResolution: limits.exportResolution,
+        watermarkRequired: limits.watermark,
+        queuePriority: limits.queuePriority,
+        voiceCloningAvailable: limits.voiceCloningAvailable,
+      };
+    },
+  });
 };
