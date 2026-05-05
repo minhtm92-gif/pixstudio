@@ -14,7 +14,8 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireUser } from "../plugins/require-auth.js";
 import { CAPTION_PRESETS, findCaptionPreset } from "../data/caption-presets.js";
 
@@ -182,6 +183,103 @@ ${numbered}`;
 				reply.code(502);
 				return {
 					error: "Translate failed",
+					message: err instanceof Error ? err.message : String(err),
+				};
+			}
+		},
+	});
+
+	// POST /api/captions/voice-over — re-voice translated segments via ElevenLabs
+	// TTS Multilingual v2. Concatenates segment text into one synth call (cheaper
+	// + simpler than per-segment), uploads MP3 to R2 derived bucket, returns
+	// signed GET URL + R2 key for Editor to swap voice track. Pairs with
+	// /translate above for the full Path B re-language demo flow.
+	app.post("/voice-over", {
+		schema: {
+			body: z.object({
+				segments: z
+					.array(
+						z.object({
+							text: z.string().min(1).max(2000),
+						}),
+					)
+					.min(1)
+					.max(200),
+				voiceId: z.string().min(1).optional(),
+				languageCode: z.enum(["vi", "en"]).default("vi"),
+			}),
+		},
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			if (!app.aiRouter) {
+				reply.code(503);
+				return { error: "AI router not configured" };
+			}
+			if (!app.r2) {
+				reply.code(503);
+				return { error: "R2 not configured" };
+			}
+
+			const text = req.body.segments
+				.map((s) => s.text.trim())
+				.filter((t) => t.length > 0)
+				.join(". ");
+			if (text.length === 0) {
+				reply.code(400);
+				return { error: "All segments empty after trim" };
+			}
+
+			try {
+				const { result } = await app.aiRouter.invoke(
+					"tts.synthesize" as never,
+					{
+						text,
+						voiceId: req.body.voiceId ?? "pNInz6obpgDQGcFmaJgB",
+						outputFormat: "mp3_44100_128",
+					} as never,
+					{ tier: "pro", workspaceId: "", userId: user.id } as never,
+				);
+				const out = result as { output?: { audioBytes?: ArrayBuffer }; costUsd?: number };
+				const audioBytes = out.output?.audioBytes;
+				if (!audioBytes) {
+					reply.code(502);
+					return { error: "TTS returned no audio bytes" };
+				}
+
+				const r2Key = `voice-over/${user.id}/${Date.now()}.mp3`;
+				await app.r2.send(
+					new PutObjectCommand({
+						Bucket: app.r2Buckets.derived,
+						Key: r2Key,
+						Body: Buffer.from(audioBytes),
+						ContentType: "audio/mpeg",
+					}),
+				);
+				const command = new GetObjectCommand({
+					Bucket: app.r2Buckets.derived,
+					Key: r2Key,
+				});
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const signedUrl = await getSignedUrl(app.r2 as any, command as any, {
+					expiresIn: 3600,
+				});
+				return {
+					r2Key,
+					signedUrl,
+					expiresInSec: 3600,
+					sizeBytes: audioBytes.byteLength,
+					costUsd: out.costUsd ?? 0,
+					languageCode: req.body.languageCode,
+				};
+			} catch (err) {
+				req.log.error(
+					{ err: err instanceof Error ? err.message : String(err), userId: user.id },
+					"caption voice-over failed",
+				);
+				reply.code(502);
+				return {
+					error: "Voice-over failed",
 					message: err instanceof Error ? err.message : String(err),
 				};
 			}
