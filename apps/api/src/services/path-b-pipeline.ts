@@ -519,10 +519,15 @@ async function stage6MusicProfile(
 	try {
 		// FFmpeg loudnorm pass 1 — measures integrated LUFS.
 		// Output goes to stderr as JSON in trailing block.
+		// `-t 90` caps analysis to first 90s of audio — mood is a statistical
+		// classifier (LUFS distribution), so a representative sample matches the
+		// full-file output to within 1 LUFS for the mood threshold buckets we use
+		// below. Without the cap, 16-min input timed out at 60s on Fly shared CPU.
 		const result = await runCmd(
 			"ffmpeg",
 			[
 				"-i", audioPath,
+				"-t", "90",
 				"-af", "loudnorm=I=-23:TP=-2:LRA=11:print_format=json",
 				"-f", "null",
 				"-",
