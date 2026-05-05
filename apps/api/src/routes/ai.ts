@@ -154,6 +154,67 @@ export const aiRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
+  // === POST /api/ai/image/persist — generate + R2 upload + Asset row (S19) ===
+  // Returns Asset ID ready for editor timeline insertion. Required for Asset
+  // Studio "AI gen" tab + Quick Create scene media swap.
+  app.post("/image/persist", {
+    schema: {
+      body: BaseInvokeContext.extend({
+        prompt: z.string().min(1),
+        seed: z.number().int().optional(),
+        workspaceId: z.string().uuid(),
+        projectId: z.string().uuid().optional(),
+      }),
+    },
+    handler: async (req, reply) => {
+      if (!app.r2) {
+        reply.code(503);
+        return { error: "R2 not configured" };
+      }
+      const ctx = buildCtx(req.body);
+      const { result } = await app.aiRouter.invoke<any, any>(
+        "image.generate",
+        { prompt: req.body.prompt, seed: req.body.seed },
+        ctx,
+      );
+      const imageBase64 = result.output?.imageBase64 ?? "";
+      const mimeType = result.output?.mimeType ?? "image/png";
+      if (!imageBase64) {
+        reply.code(502);
+        return { error: "Image gen returned empty content" };
+      }
+      const buf = Buffer.from(imageBase64, "base64");
+      const { saveAssetFromUrl } = await import("../services/asset-from-url.js");
+      const saved = await saveAssetFromUrl({
+        prisma: app.prisma,
+        r2: app.r2,
+        r2Bucket: app.r2Buckets.uploads,
+        workspaceId: req.body.workspaceId,
+        projectId: req.body.projectId,
+        type: "AI_GEN_IMAGE",
+        sourceBuffer: buf,
+        mimeType,
+        source: "AI_GEN",
+        displayName: `${result.providerId}: ${req.body.prompt.slice(0, 40)}`,
+        metadata: {
+          prompt: req.body.prompt,
+          providerId: result.providerId,
+          seed: req.body.seed,
+          costUsd: result.costUsd,
+        },
+      });
+      return {
+        assetId: saved.assetId,
+        r2Key: saved.r2Key,
+        sizeBytes: saved.sizeBytes,
+        mimeType: saved.mimeType,
+        providerId: result.providerId,
+        costUsd: result.costUsd,
+        durationMs: result.durationMs,
+      };
+    },
+  });
+
   // === POST /api/ai/tts — tts.synthesize (returns audio bytes) ===
   app.post("/tts", {
     schema: {

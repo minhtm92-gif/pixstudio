@@ -25,6 +25,7 @@ import { magicToolsRoutes } from "./routes/magic-tools.js";
 import { agentRoutes } from "./routes/agent.js";
 import { voicesRoutes } from "./routes/voices.js";
 import { captionsRoutes } from "./routes/captions.js";
+import { stockRoutes } from "./routes/stock.js";
 import aiMeshPlugin from "./plugins/ai-mesh.js";
 import prismaPlugin from "./plugins/prisma.js";
 import r2Plugin from "./plugins/r2.js";
@@ -107,6 +108,7 @@ await app.register(magicToolsRoutes, { prefix: "/api/magic" });
 await app.register(agentRoutes, { prefix: "/api/agent" });
 await app.register(voicesRoutes, { prefix: "/api/voices" });
 await app.register(captionsRoutes, { prefix: "/api/captions" });
+await app.register(stockRoutes, { prefix: "/api/stock" });
 
 const PORT = apiEnv.PORT;
 const HOST = apiEnv.HOST;
