@@ -95,6 +95,99 @@ export const captionsRoutes: FastifyPluginAsyncZod = async (app) => {
 		},
 	});
 
+	// POST /api/captions/translate — translate caption segments to target language
+	// while preserving timestamps. Used by Editor "Translate caption" flow + Path B
+	// re-language demo. Pre-flights via DO Inference Engine LLM (existing llm.chat
+	// invocation pattern).
+	app.post("/translate", {
+		schema: {
+			body: z.object({
+				segments: z
+					.array(
+						z.object({
+							startSec: z.number(),
+							durationSec: z.number(),
+							text: z.string().min(1).max(2000),
+						}),
+					)
+					.min(1)
+					.max(200),
+				sourceLang: z.enum(["vi", "en"]).default("vi"),
+				targetLang: z.enum(["vi", "en"]),
+			}),
+		},
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			if (!app.aiRouter) {
+				reply.code(503);
+				return { error: "AI router not configured" };
+			}
+			if (req.body.sourceLang === req.body.targetLang) {
+				reply.code(400);
+				return { error: "sourceLang and targetLang must differ" };
+			}
+
+			const langName = (code: string) => (code === "vi" ? "Vietnamese" : "English");
+			const numbered = req.body.segments
+				.map((s, i) => `${i + 1}. ${s.text}`)
+				.join("\n");
+			const prompt = `Translate the following ${langName(req.body.sourceLang)} subtitle segments into ${langName(req.body.targetLang)}.
+
+Rules:
+- Preserve numbering. Output exactly one translated line per input line, prefixed with the same number and a period.
+- Keep meaning and tone. Use natural conversational ${langName(req.body.targetLang)}, not literal word-for-word.
+- Do NOT merge or split lines.
+- Do NOT add any commentary, header, or footer — only the numbered translations.
+
+Input:
+${numbered}`;
+
+			try {
+				const { result } = await app.aiRouter.invoke(
+					"llm.chat" as never,
+					{
+						prompt,
+						maxTokens: Math.min(4000, req.body.segments.length * 80 + 200),
+						temperature: 0.3,
+					} as never,
+					{ tier: "pro", workspaceId: "", userId: user.id } as never,
+				);
+				const out = result as { output?: { text?: string }; text?: string; costUsd?: number };
+				const rawText = out.output?.text ?? out.text ?? "";
+				const lines = rawText.split(/\r?\n/);
+				const byIndex = new Map<number, string>();
+				for (const line of lines) {
+					const m = line.match(/^\s*(\d+)\.\s*(.+)$/);
+					if (m) byIndex.set(parseInt(m[1]!, 10) - 1, m[2]!.trim());
+				}
+				const translated = req.body.segments.map((s, i) => ({
+					startSec: s.startSec,
+					durationSec: s.durationSec,
+					text: byIndex.get(i) ?? s.text,
+				}));
+				const missingCount = translated.filter((s, i) => !byIndex.has(i)).length;
+				return {
+					segments: translated,
+					sourceLang: req.body.sourceLang,
+					targetLang: req.body.targetLang,
+					costUsd: out.costUsd ?? 0,
+					missingCount,
+				};
+			} catch (err) {
+				req.log.error(
+					{ err: err instanceof Error ? err.message : String(err), userId: user.id },
+					"caption translate failed",
+				);
+				reply.code(502);
+				return {
+					error: "Translate failed",
+					message: err instanceof Error ? err.message : String(err),
+				};
+			}
+		},
+	});
+
 	// POST /api/captions/transcribe — Caption AI from R2 audio key.
 	app.post("/transcribe", {
 		schema: {
