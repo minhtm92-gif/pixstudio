@@ -229,6 +229,32 @@ const SCENE_DETECT_THRESHOLD_BY_TIER: Record<"STANDARD" | "PRO" | "MAX", number>
 	MAX: 0.25,
 };
 
+/**
+ * Minimum editable scene duration. Storytelling videos with rapid cuts produce
+ * 200+ raw scenes (e.g. 16-min YouTube → 366 scenes), making the editor UI
+ * unusable. Merge consecutive scenes shorter than this threshold into the
+ * previous scene — preserves total duration while reducing scene count to
+ * an editable level.
+ *
+ * Empirical: 16-min storytelling at PRO threshold 0.30 → 366 raw → ~60 merged.
+ */
+const MIN_SCENE_DURATION_SEC = 5;
+
+function mergeShortScenes(scenes: SceneBoundary[]): SceneBoundary[] {
+	if (scenes.length <= 1) return scenes;
+	const merged: SceneBoundary[] = [];
+	for (const s of scenes) {
+		const prev = merged[merged.length - 1];
+		if (prev && s.durationSec < MIN_SCENE_DURATION_SEC) {
+			prev.endSec = s.endSec;
+			prev.durationSec = prev.endSec - prev.startSec;
+		} else {
+			merged.push({ ...s });
+		}
+	}
+	return merged.map((s, i) => ({ ...s, id: `scene-${i + 1}`, order: i + 1 }));
+}
+
 async function stage2DetectScenes(workDir: string, ctx: PipelineContext): Promise<SceneBoundary[]> {
 	const tier = ctx.tier ?? "PRO";
 	const threshold = SCENE_DETECT_THRESHOLD_BY_TIER[tier];
@@ -291,8 +317,17 @@ async function stage2DetectScenes(workDir: string, ctx: PipelineContext): Promis
 		};
 	});
 
-	ctx.logger.info({ sceneCount: scenes.length, totalDuration }, "stage 2 done");
-	return scenes;
+	const mergedScenes = mergeShortScenes(scenes);
+	ctx.logger.info(
+		{
+			rawSceneCount: scenes.length,
+			sceneCount: mergedScenes.length,
+			totalDuration,
+			minDurationSec: MIN_SCENE_DURATION_SEC,
+		},
+		"stage 2 done",
+	);
+	return mergedScenes;
 }
 
 /**
