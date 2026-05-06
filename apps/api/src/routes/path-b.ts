@@ -28,7 +28,7 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 					"video/x-matroska",
 					"video/webm",
 				]),
-				sizeBytes: z.number().int().positive().max(500 * 1024 * 1024),
+				sizeBytes: z.number().int().positive().max(2 * 1024 * 1024 * 1024),
 				kind: z.enum(["source-upload", "manual-stock"]).default("source-upload"),
 				jobId: z.string().uuid().optional(),
 				sceneId: z.string().min(1).max(60).optional(),
