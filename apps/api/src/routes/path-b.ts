@@ -218,6 +218,66 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 		},
 	});
 
+	// GET /jobs/:id/stock-keywords — derive Envato Elements search URL per scene
+	// from the visual analysis stage 5 output. Frontend / curl helper consumes
+	// this to render the Replace-cảnh manual loop.
+	app.get("/jobs/:id/stock-keywords", {
+		schema: { params: z.object({ id: z.string().uuid() }) },
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			const job = await app.prisma.reverseEngineerJob.findUnique({
+				where: { id: req.params.id },
+			});
+			if (!job) {
+				reply.code(404);
+				return { error: "Job not found" };
+			}
+			if (job.userId !== user.id) {
+				reply.code(403);
+				return { error: "Not your job" };
+			}
+			const state = job.outputEditorStateJson as
+				| {
+					timeline?: {
+						scenes?: Array<{
+							id: string;
+							order: number;
+							durationSec: number;
+							mediaQuery?: string;
+							mood?: string | null;
+							objects?: string[];
+						}>;
+					};
+				}
+				| null;
+			const scenes = state?.timeline?.scenes ?? [];
+			const items = scenes.map((s) => {
+				const objects = s.objects ?? [];
+				// Pick first 3 most descriptive objects (skip generic words). Falls back
+				// to mediaQuery first phrase if objects empty.
+				const keywords = objects.slice(0, 3);
+				const queryStr = keywords.length > 0
+					? keywords.join(" ")
+					: (s.mediaQuery ?? "").split(/[.,;]/)[0]?.trim().slice(0, 60) ?? "";
+				const envatoSearchUrl = queryStr
+					? `https://elements.envato.com/stock-video/${encodeURIComponent(queryStr)}`
+					: null;
+				return {
+					sceneId: s.id,
+					order: s.order,
+					durationSec: s.durationSec,
+					description: s.mediaQuery ?? "",
+					mood: s.mood ?? null,
+					objects,
+					keywords,
+					envatoSearchUrl,
+				};
+			});
+			return { jobId: job.id, items };
+		},
+	});
+
 	app.post("/jobs/:id/cancel", {
 		schema: { params: z.object({ id: z.string().uuid() }) },
 		handler: async (req, reply) => {
