@@ -145,6 +145,10 @@ try {
     app.startPathBExtractWorker();
     app.log.info("BullMQ worker started: path-b-extract");
   }
+  if (typeof app.startPathBRenderWorker === "function") {
+    app.startPathBRenderWorker();
+    app.log.info("BullMQ worker started: path-b-render");
+  }
 } catch (err) {
   app.log.error(err);
   process.exit(1);

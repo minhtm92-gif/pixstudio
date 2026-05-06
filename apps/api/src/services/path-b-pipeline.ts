@@ -249,7 +249,7 @@ const MIN_SCENE_DURATION_SEC = 5;
  */
 const PER_VIDEO_DURATION_CAP_SEC_BY_TIER: Record<"STANDARD" | "PRO" | "MAX", number> = {
 	STANDARD: 5 * 60,
-	PRO: 15 * 60,
+	PRO: 20 * 60,
 	MAX: 30 * 60,
 };
 

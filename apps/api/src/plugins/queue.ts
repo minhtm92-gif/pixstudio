@@ -22,6 +22,11 @@ import {
 	secondsToQuotaMinutes,
 } from "../services/path-b-editor-state.js";
 import { incrementPathBMinutes } from "../services/tier-quota.js";
+import {
+	renderPathBFinal,
+	type PathBRenderParams,
+	type PathBRenderResult,
+} from "../services/path-b-render.js";
 
 declare module "fastify" {
 	interface FastifyInstance {
@@ -29,9 +34,11 @@ declare module "fastify" {
 		queues: {
 			quickCreateBuild: Queue;
 			pathBExtract: Queue;
+			pathBRender: Queue;
 		};
 		startQuickCreateBuildWorker: () => Worker;
 		startPathBExtractWorker: () => Worker;
+		startPathBRenderWorker: () => Worker;
 	}
 }
 
@@ -61,6 +68,9 @@ export interface PathBExtractJobReturn {
 	scenes: number;
 	durationSec: number;
 }
+
+export type PathBRenderJobData = PathBRenderParams;
+export type PathBRenderJobReturn = PathBRenderResult;
 
 const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
 	// BullMQ requires Redis protocol (redis:// or rediss://). The Upstash REST
@@ -114,7 +124,20 @@ const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
 		},
 	);
 
-	app.decorate("queues", { quickCreateBuild, pathBExtract });
+	const pathBRender = new Queue<PathBRenderJobData, PathBRenderJobReturn>(
+		"path-b-render",
+		{
+			connection: redis,
+			defaultJobOptions: {
+				attempts: 2,
+				backoff: { type: "exponential", delay: 5000 },
+				removeOnComplete: { count: 50, age: 24 * 60 * 60 },
+				removeOnFail: { count: 100, age: 7 * 24 * 60 * 60 },
+			},
+		},
+	);
+
+	app.decorate("queues", { quickCreateBuild, pathBExtract, pathBRender });
 
 	app.decorate("startQuickCreateBuildWorker", () => {
 		const worker = new Worker<QuickCreateBuildJobData, QuickCreateBuildJobReturn>(
@@ -154,13 +177,29 @@ const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
 		return worker;
 	});
 
+	app.decorate("startPathBRenderWorker", () => {
+		const worker = new Worker<PathBRenderJobData, PathBRenderJobReturn>(
+			"path-b-render",
+			async (job) => processPathBRenderJob(app, job),
+			{ connection: redis, concurrency: 1 },
+		);
+		worker.on("failed", (job, err) => {
+			app.log.error({ jobId: job?.id, err }, "path-b-render worker job failed");
+		});
+		worker.on("completed", (job, ret) => {
+			app.log.info({ jobId: job.id, ret }, "path-b-render worker job completed");
+		});
+		return worker;
+	});
+
 	app.addHook("onClose", async () => {
 		await quickCreateBuild.close();
 		await pathBExtract.close();
+		await pathBRender.close();
 		await redis.quit();
 	});
 
-	app.log.info("BullMQ queue ready: quick-create-build, path-b-extract");
+	app.log.info("BullMQ queue ready: quick-create-build, path-b-extract, path-b-render");
 };
 
 /**
@@ -717,6 +756,24 @@ async function processPathBJob(
 		});
 		throw err;
 	}
+}
+
+/**
+ * Path B final render worker — concatenates anh-uploaded Envato replacement
+ * clips with new voice-over track + burned subtitles. Reuses path-b-render
+ * service so the FFmpeg orchestration stays out of this plugin.
+ */
+async function processPathBRenderJob(
+	app: FastifyInstance,
+	job: Job<PathBRenderJobData, PathBRenderJobReturn>,
+): Promise<PathBRenderJobReturn> {
+	if (!app.r2) {
+		throw new Error("R2 not configured — cannot render");
+	}
+	return renderPathBFinal(
+		{ r2: app.r2, r2Buckets: app.r2Buckets, logger: app.log },
+		job.data,
+	);
 }
 
 export default fp(queueImpl, { name: "queue", dependencies: ["prisma"] });

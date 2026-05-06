@@ -8,7 +8,7 @@
 
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireUser, requireAdmin } from "../plugins/require-auth.js";
 
@@ -29,6 +29,9 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 					"video/webm",
 				]),
 				sizeBytes: z.number().int().positive().max(500 * 1024 * 1024),
+				kind: z.enum(["source-upload", "manual-stock"]).default("source-upload"),
+				jobId: z.string().uuid().optional(),
+				sceneId: z.string().min(1).max(60).optional(),
 			}),
 		},
 		handler: async (req, reply) => {
@@ -38,10 +41,16 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 				reply.code(503);
 				return { error: "R2 not configured" };
 			}
+			if (req.body.kind === "manual-stock" && (!req.body.jobId || !req.body.sceneId)) {
+				reply.code(400);
+				return { error: "manual-stock kind requires jobId + sceneId" };
+			}
 			const safeName = req.body.filename
 				.slice(-60)
 				.replace(/[^a-zA-Z0-9.-]/g, "_");
-			const r2Key = `path-b/source-uploads/${req.body.workspaceId}/${Date.now()}-${safeName}`;
+			const r2Key = req.body.kind === "manual-stock"
+				? `path-b/manual-stock/${req.body.jobId}/${req.body.sceneId}-${Date.now()}-${safeName}`
+				: `path-b/source-uploads/${req.body.workspaceId}/${Date.now()}-${safeName}`;
 			const command = new PutObjectCommand({
 				Bucket: app.r2Buckets.uploads,
 				Key: r2Key,
@@ -50,11 +59,16 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 			});
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const presignedUrl = await getSignedUrl(app.r2 as any, command as any, {
-				expiresIn: 1200, // 20 min — large videos take longer to upload
+				expiresIn: 1200,
 			});
 			req.log.info(
-				{ userId: user.id, workspaceId: req.body.workspaceId, sizeBytes: req.body.sizeBytes },
-				"path-b source-upload presign issued",
+				{
+					userId: user.id,
+					workspaceId: req.body.workspaceId,
+					kind: req.body.kind,
+					sizeBytes: req.body.sizeBytes,
+				},
+				"path-b presign issued",
 			);
 			return { presignedUrl, r2Key, expiresInSec: 1200 };
 		},
@@ -294,6 +308,138 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 			return {
 				projectId: project.id,
 				editorUrl: `/quick-create/workflows/path-b/editor?projectId=${project.id}`,
+			};
+		},
+	});
+
+	// POST /api/path-b/projects/:projectId/render-final — enqueue final-render job.
+	// Body holds the per-scene replacement R2 keys + voice-over R2 key + caption
+	// preset id + aspect. Worker (queue.ts processPathBRenderJob) does the FFmpeg
+	// orchestration via path-b-render service.
+	app.post("/projects/:projectId/render-final", {
+		schema: {
+			params: z.object({ projectId: z.string().uuid() }),
+			body: z.object({
+				replacementR2KeysByScene: z.record(z.string(), z.string()).default({}),
+				voiceOverR2Key: z.string().nullable().default(null),
+				captionPresetId: z.string().min(1).default("minimal-clean"),
+				aspectRatio: z.enum(["16:9", "9:16", "1:1", "4:5"]).default("16:9"),
+			}),
+		},
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+
+			const project = await app.prisma.project.findUnique({
+				where: { id: req.params.projectId },
+				select: {
+					id: true,
+					workspaceId: true,
+					editorStateJson: true,
+				},
+			});
+			if (!project) {
+				reply.code(404);
+				return { error: "Project not found" };
+			}
+
+			const editorState = project.editorStateJson as
+				| {
+					timeline?: {
+						scenes?: Array<{
+							id: string;
+							order: number;
+							durationSec: number;
+							script?: string;
+						}>;
+					};
+				}
+				| null;
+			const scenes = editorState?.timeline?.scenes ?? [];
+			if (scenes.length === 0) {
+				reply.code(400);
+				return { error: "Project has no Path B scenes — run extraction first" };
+			}
+
+			if (!app.queues?.pathBRender) {
+				reply.code(503);
+				return { error: "BullMQ render queue unavailable" };
+			}
+
+			const renderJobId = crypto.randomUUID();
+			await app.queues.pathBRender.add(
+				"render",
+				{
+					projectId: project.id,
+					jobId: renderJobId,
+					scenes: scenes.map((s) => ({
+						id: s.id,
+						order: s.order,
+						durationSec: s.durationSec,
+						script: s.script ?? "",
+					})),
+					replacementR2KeysByScene: req.body.replacementR2KeysByScene,
+					voiceOverR2Key: req.body.voiceOverR2Key,
+					captionPresetId: req.body.captionPresetId,
+					aspectRatio: req.body.aspectRatio,
+				},
+				{ jobId: renderJobId },
+			);
+
+			req.log.info(
+				{
+					projectId: project.id,
+					renderJobId,
+					sceneCount: scenes.length,
+					replacementCount: Object.keys(req.body.replacementR2KeysByScene).length,
+					hasVoiceOver: !!req.body.voiceOverR2Key,
+				},
+				"path-b render enqueued",
+			);
+
+			return {
+				renderJobId,
+				status: "QUEUED",
+				message: "Render queued. Poll GET /api/path-b/render-jobs/:id for status.",
+			};
+		},
+	});
+
+	// GET /api/path-b/render-jobs/:id — poll a queued render job.
+	app.get("/render-jobs/:id", {
+		schema: { params: z.object({ id: z.string().uuid() }) },
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			if (!app.queues?.pathBRender) {
+				reply.code(503);
+				return { error: "Render queue unavailable" };
+			}
+			const job = await app.queues.pathBRender.getJob(req.params.id);
+			if (!job) {
+				reply.code(404);
+				return { error: "Render job not found" };
+			}
+			const state = await job.getState();
+			const result = job.returnvalue;
+			let signedUrl: string | null = null;
+			if (state === "completed" && result?.renderR2Key && app.r2) {
+				const command = new GetObjectCommand({
+					Bucket: app.r2Buckets.renders,
+					Key: result.renderR2Key,
+				});
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				signedUrl = await getSignedUrl(app.r2 as any, command as any, {
+					expiresIn: 3600,
+				});
+			}
+			return {
+				renderJobId: req.params.id,
+				state,
+				progress: job.progress,
+				result: result ?? null,
+				signedUrl,
+				failedReason: job.failedReason ?? null,
 			};
 		},
 	});
