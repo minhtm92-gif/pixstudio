@@ -237,7 +237,17 @@ GitHub Actions `.github/workflows/ci-pxs.yml` ALREADY shipped:
 **Required GitHub repo secret:**
 - `DOPPLER_TOKEN_CI` — Doppler service token với CI scope (anh generate via Doppler dashboard → Project pxs-prod → Access → Generate Service Token cho `dev` config)
 
-Vercel-GitHub integration auto-deploys preview/production on commit. Fly.io deploy via `fly deploy` GitHub Action (em add Sprint 1 if needed).
+Vercel-GitHub integration auto-deploys preview/production on commit.
+
+**Fly.io auto-deploy** (`.github/workflows/fly-deploy.yml`, shipped 2026-05-06):
+- Triggers on push to main when `apps/api/**` `packages/**` `Dockerfile` `fly.toml` changes
+- Runs `flyctl deploy --remote-only --skip-release-command`
+- **Required secret:** `FLY_API_TOKEN` — generate via `flyctl tokens create deploy -x 999999h`, add to Settings → Secrets and variables → Actions
+
+**Schema migration deploy** (manual, không qua action vì sin region capacity squeeze):
+1. Add prisma migration locally (`bunx prisma migrate dev --name <slug>`)
+2. Commit + push as usual (auto-deploy ships code with `--skip-release-command`, so migration KHÔNG run yet)
+3. Manually `flyctl ssh console -a pixstudio-api -C "sh -c 'cd /repo/apps/api && bunx prisma migrate deploy'"` — runs in 1 of the existing app machines, no extra memory needed
 
 ## 9. Monitoring + observability
 

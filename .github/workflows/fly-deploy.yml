@@ -1,0 +1,45 @@
+name: Fly Deploy
+
+# Auto-deploy to Fly.io on push to main when backend code changes.
+# Frontend (apps/web) deploys via Vercel automatically — not handled here.
+#
+# Setup: anh add `FLY_API_TOKEN` repo secret (Settings → Secrets and variables →
+# Actions → New repository secret). Generate via `flyctl tokens create deploy
+# -x 999999h`. The workflow runs `flyctl deploy --remote-only` so the build
+# happens on Fly's builder, not GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "packages/**"
+      - "Dockerfile"
+      - "fly.toml"
+      - ".github/workflows/fly-deploy.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: fly-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy api to Fly.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        # --remote-only: build on Fly's builder, not the runner.
+        # --skip-release-command: avoids the 3rd machine memory squeeze on
+        # capacity-constrained sin region. Schema migrations are run manually
+        # via `flyctl deploy` from local when there's a new prisma migration —
+        # see deployment-guide.md.
+        run: flyctl deploy --remote-only --skip-release-command -a pixstudio-api
