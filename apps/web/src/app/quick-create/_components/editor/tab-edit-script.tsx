@@ -175,7 +175,10 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 			}>("/api/captions/translate", {
 				method: "POST",
 				body: JSON.stringify({ segments: payload, sourceLang, targetLang }),
-			});
+				// 52-segment LLM batch may take ~30-60s on DO Inference; default 30s
+				// timeout aborts mid-flight. Allow 2 min.
+				timeoutMs: 120_000,
+			} as RequestInit & { timeoutMs?: number });
 			const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
 			const updatedScenes = scenes.map((s, i) => ({
 				...s,
@@ -203,7 +206,10 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 			}>("/api/captions/voice-over", {
 				method: "POST",
 				body: JSON.stringify({ segments: payload, languageCode: "vi" }),
-			});
+				// Concatenated TTS for full script can take 60-120s on ElevenLabs
+				// for ~10K char input. Default 30s aborts mid-flight.
+				timeoutMs: 180_000,
+			} as RequestInit & { timeoutMs?: number });
 			const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
 			onUpdate({
 				...editorState,
