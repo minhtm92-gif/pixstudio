@@ -322,6 +322,7 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 			body: z.object({
 				replacementR2KeysByScene: z.record(z.string(), z.string()).default({}),
 				voiceOverR2Key: z.string().nullable().default(null),
+				voiceOverR2KeysByScene: z.record(z.string(), z.string()).default({}),
 				captionPresetId: z.string().min(1).default("minimal-clean"),
 				aspectRatio: z.enum(["16:9", "9:16", "1:1", "4:5"]).default("16:9"),
 			}),
@@ -380,6 +381,7 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 					})),
 					replacementR2KeysByScene: req.body.replacementR2KeysByScene,
 					voiceOverR2Key: req.body.voiceOverR2Key,
+					voiceOverR2KeysByScene: req.body.voiceOverR2KeysByScene,
 					captionPresetId: req.body.captionPresetId,
 					aspectRatio: req.body.aspectRatio,
 				},

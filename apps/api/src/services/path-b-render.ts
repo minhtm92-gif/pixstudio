@@ -42,7 +42,10 @@ export interface PathBRenderParams {
 	jobId: string;
 	scenes: SceneInput[];
 	replacementR2KeysByScene: Record<string, string>;
+	/** Concatenated single voice-over track — used when caller already merged. */
 	voiceOverR2Key: string | null;
+	/** Per-scene voice-over MP3 R2 keys — render service concats by scene order. */
+	voiceOverR2KeysByScene: Record<string, string>;
 	captionPresetId: string;
 	aspectRatio: PathBAspect;
 }
@@ -182,9 +185,32 @@ export async function renderPathBFinal(
 			120_000,
 		);
 
-		// 3. Download voice-over audio if provided.
+		// 3. Voice-over audio. Per-scene map (preferred) → download each MP3 in
+		// scene order then ffmpeg-concat → single voice-over track. Legacy single
+		// `voiceOverR2Key` still supported for callers that pre-merged.
 		let voiceOverPath: string | null = null;
-		if (params.voiceOverR2Key) {
+		const perSceneVoiceKeys = params.scenes
+			.map((s) => params.voiceOverR2KeysByScene?.[s.id])
+			.filter((k): k is string => !!k);
+		if (perSceneVoiceKeys.length > 0) {
+			const downloadedPaths: string[] = [];
+			for (let i = 0; i < perSceneVoiceKeys.length; i++) {
+				const dst = join(workDir, `vo-${i}.mp3`);
+				await downloadR2(ctx.r2, ctx.r2Buckets.derived, perSceneVoiceKeys[i]!, dst);
+				downloadedPaths.push(dst);
+			}
+			const voList = join(workDir, "vo-list.txt");
+			await writeFile(
+				voList,
+				downloadedPaths.map((p) => `file '${p.replace(/'/g, "\\''")}'`).join("\n"),
+			);
+			voiceOverPath = join(workDir, "voice-over.mp3");
+			await runCmd(
+				"ffmpeg",
+				["-y", "-f", "concat", "-safe", "0", "-i", voList, "-c", "copy", voiceOverPath],
+				120_000,
+			);
+		} else if (params.voiceOverR2Key) {
 			voiceOverPath = join(workDir, "voice-over.mp3");
 			await downloadR2(ctx.r2, ctx.r2Buckets.derived, params.voiceOverR2Key, voiceOverPath);
 		}

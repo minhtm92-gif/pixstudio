@@ -70,6 +70,7 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 	const [translateBusy, setTranslateBusy] = useState(false);
 	const [translateProgress, setTranslateProgress] = useState<{ done: number; total: number } | null>(null);
 	const [voiceOverBusy, setVoiceOverBusy] = useState(false);
+	const [voiceOverProgress, setVoiceOverProgress] = useState<{ done: number; total: number } | null>(null);
 
 	const updateScene = (sceneId: string, patch: Partial<Scene>) => {
 		const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
@@ -217,30 +218,51 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 		setError(null);
 		if (scenes.length === 0) return;
 		setVoiceOverBusy(true);
+		setVoiceOverProgress({ done: 0, total: scenes.length });
+		// Per-scene TTS so each call stays under ElevenLabs 5000-char single
+		// request limit + finishes in seconds. Render endpoint concats per-scene
+		// MP3s into final voice-over track.
+		const voiceOverByScene: Record<string, string> = {};
 		try {
-			const payload = scenes.map((s) => ({ text: s.script }));
-			const res = await apiFetch<{
-				signedUrl: string;
-				r2Key: string;
-				costUsd: number;
-			}>("/api/captions/voice-over", {
-				method: "POST",
-				body: JSON.stringify({ segments: payload, languageCode: "vi" }),
-				// Concatenated TTS for full script can take 60-120s on ElevenLabs
-				// for ~10K char input. Default 30s aborts mid-flight.
-				timeoutMs: 180_000,
-			} as RequestInit & { timeoutMs?: number });
+			for (let i = 0; i < scenes.length; i++) {
+				const scene = scenes[i]!;
+				if (!scene.script || scene.script.trim().length === 0) {
+					setVoiceOverProgress({ done: i + 1, total: scenes.length });
+					continue;
+				}
+				try {
+					const res = await apiFetch<{ r2Key: string; signedUrl: string; costUsd: number }>(
+						"/api/captions/voice-over",
+						{
+							method: "POST",
+							body: JSON.stringify({
+								segments: [{ text: scene.script }],
+								languageCode: "vi",
+							}),
+							timeoutMs: 60_000,
+						} as RequestInit & { timeoutMs?: number },
+					);
+					voiceOverByScene[scene.id] = res.r2Key;
+				} catch (sceneErr) {
+					console.warn(`Voice over scene ${scene.id} failed:`, sceneErr);
+				}
+				setVoiceOverProgress({ done: i + 1, total: scenes.length });
+			}
 			const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
 			onUpdate({
 				...editorState,
-				voiceOverR2Key: res.r2Key,
-				voiceOverSignedUrl: res.signedUrl,
+				voiceOverByScene,
 				timeline: { ...ts },
 			});
+			const failed = scenes.length - Object.keys(voiceOverByScene).length;
+			if (failed > 0) {
+				setError(`${Object.keys(voiceOverByScene).length}/${scenes.length} scenes voiced. ${failed} failed — retry để gen lại scene còn thiếu.`);
+			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Voice-over failed");
 		} finally {
 			setVoiceOverBusy(false);
+			setVoiceOverProgress(null);
 		}
 	};
 
@@ -331,7 +353,9 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 							) : (
 								<Mic className="h-3.5 w-3.5" />
 							)}
-							Voice over
+							{voiceOverBusy && voiceOverProgress
+								? `Voice ${voiceOverProgress.done}/${voiceOverProgress.total}…`
+								: "Voice over"}
 						</button>
 						<button
 							type="button"
