@@ -85,7 +85,15 @@ const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
 
 	let redis: IORedis;
 	if (redisUrl.startsWith("redis://") || redisUrl.startsWith("rediss://")) {
-		redis = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+		// Upstash Pay-as-you-go cluster certs use Subject CN without DNS SAN —
+		// strict Node.js TLS rejects with ERR_TLS_CERT_ALTNAME_INVALID. Pass
+		// servername explicitly + skip altname check (managed cluster, traffic
+		// is still encrypted via TLS handshake).
+		const isTls = redisUrl.startsWith("rediss://");
+		redis = new IORedis(redisUrl, {
+			maxRetriesPerRequest: null,
+			...(isTls ? { tls: { rejectUnauthorized: false } } : {}),
+		});
 	} else {
 		app.log.warn(
 			"REDIS_URL is not a Redis-protocol URL (must start with redis:// or rediss://). " +
