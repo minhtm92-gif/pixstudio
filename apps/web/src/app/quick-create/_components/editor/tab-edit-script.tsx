@@ -68,6 +68,7 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 	const [voicePickerSceneId, setVoicePickerSceneId] = useState<string | null>(null);
 	const [pausesEnabled, setPausesEnabled] = useState(true);
 	const [translateBusy, setTranslateBusy] = useState(false);
+	const [translateProgress, setTranslateProgress] = useState<{ done: number; total: number } | null>(null);
 	const [voiceOverBusy, setVoiceOverBusy] = useState(false);
 
 	const updateScene = (sceneId: string, patch: Partial<Scene>) => {
@@ -164,32 +165,51 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 		if (scenes.length === 0) return;
 		const sourceLang = targetLang === "vi" ? "en" : "vi";
 		setTranslateBusy(true);
+		setTranslateProgress({ done: 0, total: scenes.length });
+		// Translate per scene so each LLM call is small enough to land in seconds —
+		// batching all 52 at once exceeded 120s and aborted mid-flight. We update
+		// the editor state incrementally after each scene so the user sees progress
+		// and a partial failure leaves the rest of the work intact.
+		const translatedById = new Map<string, string>();
 		try {
-			const payload = scenes.map((s) => ({
-				startSec: 0,
-				durationSec: s.durationSec,
-				text: s.script,
-			}));
-			const res = await apiFetch<{
-				segments: Array<{ text: string }>;
-			}>("/api/captions/translate", {
-				method: "POST",
-				body: JSON.stringify({ segments: payload, sourceLang, targetLang }),
-				// 52-segment LLM batch may take ~30-60s on DO Inference; default 30s
-				// timeout aborts mid-flight. Allow 2 min.
-				timeoutMs: 120_000,
-			} as RequestInit & { timeoutMs?: number });
+			for (let i = 0; i < scenes.length; i++) {
+				const scene = scenes[i]!;
+				try {
+					const res = await apiFetch<{ segments: Array<{ text: string }> }>(
+						"/api/captions/translate",
+						{
+							method: "POST",
+							body: JSON.stringify({
+								segments: [{ startSec: 0, durationSec: scene.durationSec, text: scene.script }],
+								sourceLang,
+								targetLang,
+							}),
+							timeoutMs: 30_000,
+						} as RequestInit & { timeoutMs?: number },
+					);
+					const newText = res.segments[0]?.text;
+					if (newText) translatedById.set(scene.id, newText);
+				} catch (sceneErr) {
+					console.warn(`Translate scene ${scene.id} failed:`, sceneErr);
+				}
+				setTranslateProgress({ done: i + 1, total: scenes.length });
+			}
 			const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
-			const updatedScenes = scenes.map((s, i) => ({
+			const updatedScenes = scenes.map((s) => ({
 				...s,
-				script: res.segments[i]?.text ?? s.script,
-				scriptChangedSinceTts: true,
+				script: translatedById.get(s.id) ?? s.script,
+				scriptChangedSinceTts: translatedById.has(s.id),
 			}));
 			onUpdate({ ...editorState, timeline: { ...ts, scenes: updatedScenes } });
+			const failed = scenes.length - translatedById.size;
+			if (failed > 0) {
+				setError(`${translatedById.size}/${scenes.length} scenes translated. ${failed} failed — retry để dịch lại scene còn thiếu.`);
+			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Translate failed");
 		} finally {
 			setTranslateBusy(false);
+			setTranslateProgress(null);
 		}
 	};
 
@@ -279,7 +299,9 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 							) : (
 								<Languages className="h-3.5 w-3.5" />
 							)}
-							Translate → EN
+							{translateBusy && translateProgress
+								? `Dịch ${translateProgress.done}/${translateProgress.total}…`
+								: "Translate → EN"}
 						</button>
 						<button
 							type="button"
@@ -293,7 +315,9 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 							) : (
 								<Languages className="h-3.5 w-3.5" />
 							)}
-							Translate → VI
+							{translateBusy && translateProgress
+								? `Dịch ${translateProgress.done}/${translateProgress.total}…`
+								: "Translate → VI"}
 						</button>
 						<button
 							type="button"
