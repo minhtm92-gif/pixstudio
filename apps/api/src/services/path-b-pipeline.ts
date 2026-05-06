@@ -253,7 +253,7 @@ const PER_VIDEO_DURATION_CAP_SEC_BY_TIER: Record<"STANDARD" | "PRO" | "MAX", num
 	MAX: 30 * 60,
 };
 
-function mergeShortScenes(scenes: SceneBoundary[]): SceneBoundary[] {
+export function mergeShortScenes(scenes: SceneBoundary[]): SceneBoundary[] {
 	if (scenes.length <= 1) return scenes;
 	const merged: SceneBoundary[] = [];
 	for (const s of scenes) {
