@@ -52,9 +52,18 @@ export function useAutoSave(projectId: string, initialVersion: number = 0) {
 				}),
 			});
 			if (res.status === 409) {
+				// Sync to server version so next save's clientVersion matches and the
+				// request goes through. Without this, every subsequent auto-save
+				// retries with the same stale version and the loop never recovers
+				// (e.g. Path B handoff hydrates the editor at v0 but the Project
+				// row was already at v1 from the worker write, so the very first
+				// save is a 409 followed by an infinite 409 loop).
 				const json = (await res.json()) as { serverVersion: number };
+				setVersion(json.serverVersion);
 				setStatus("conflict");
-				setError(`Stale state — server is at version ${json.serverVersion}. Pull latest first.`);
+				setError(
+					`Synced to server v${json.serverVersion}. Next edit will save normally.`,
+				);
 				return;
 			}
 			if (!res.ok) {
