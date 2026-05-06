@@ -1,14 +1,18 @@
 "use client";
 
 import { Button } from "../ui/button";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { apiFetch } from "@/lib/api-client";
 import Link from "next/link";
 import { RenameProjectDialog } from "@/project/components/rename-project-dialog";
 import { DeleteProjectDialog } from "@/project/components/delete-project-dialog";
@@ -55,6 +59,12 @@ export function EditorHeader() {
 	);
 }
 
+interface CaptionPreset {
+	id: string;
+	displayName: string;
+	descriptionVi?: string;
+}
+
 /**
  * SCOPE §3.1 top toolbar:
  * [Save] [Undo] [Redo] | [Cut] [Trim] [Speed] [Mask]
@@ -65,6 +75,16 @@ export function EditorHeader() {
 function ToolbarRow() {
 	const editor = useEditor();
 	const router = useRouter();
+	const [captionPresets, setCaptionPresets] = useState<CaptionPreset[]>([]);
+
+	useEffect(() => {
+		// Surface 8 VN-tuned caption presets from backend (S17). Click pre-toasts
+		// description; real apply happens in Quick Create Editor (View 6) where
+		// Caption AI ties to the project audio track.
+		apiFetch<{ items: CaptionPreset[] }>("/api/captions/presets")
+			.then((data) => setCaptionPresets(data.items ?? []))
+			.catch(() => {});
+	}, []);
 
 	const handleSave = async () => {
 		try {
@@ -108,20 +128,59 @@ function ToolbarRow() {
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="center" className="z-100 w-52">
+					{captionPresets.length > 0 ? (
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger>
+								<Sparkles className="h-4 w-4" />
+								<span>Caption AI</span>
+							</DropdownMenuSubTrigger>
+							<DropdownMenuSubContent className="z-100 w-56">
+								{captionPresets.map((p) => (
+									<DropdownMenuItem
+										key={p.id}
+										onClick={() =>
+											toast.info(p.displayName, {
+												description:
+													p.descriptionVi ??
+													"Apply preset trong Quick Create Editor để sync với audio track.",
+											})
+										}
+									>
+										{p.displayName}
+									</DropdownMenuItem>
+								))}
+							</DropdownMenuSubContent>
+						</DropdownMenuSub>
+					) : (
+						<DropdownMenuItem
+							onClick={() =>
+								toast.info("Caption AI · ElevenLabs Scribe", {
+									description:
+										"Mở Quick Create Editor để áp dụng auto-caption với 8 VN preset.",
+								})
+							}
+							icon={<Sparkles className="h-4 w-4" />}
+						>
+							Caption AI
+						</DropdownMenuItem>
+					)}
 					<DropdownMenuItem
-						onClick={() => toast.info("Caption AI · ElevenLabs Scribe — Phase 2 (PW-14)")}
-						icon={<Sparkles className="h-4 w-4" />}
-					>
-						Caption AI
-					</DropdownMenuItem>
-					<DropdownMenuItem
-						onClick={() => toast.info("BG remove · SAM 2 — Phase 2 (PW-23)")}
+						onClick={() =>
+							toast.info("BG remove · SAM 2", {
+								description:
+									"Pending GPU droplet — anh provision DO L40S/RTX 6000 (snapshot 226870948).",
+							})
+						}
 						icon={<ImageOff className="h-4 w-4" />}
 					>
 						BG remove
 					</DropdownMenuItem>
 					<DropdownMenuItem
-						onClick={() => toast.info("Upscale 4K · Real-ESRGAN — Phase 2 Max (PW-22)")}
+						onClick={() =>
+							toast.info("Upscale 4K · Real-ESRGAN (Max tier)", {
+								description: "Pending GPU droplet — anh provision DO L40S.",
+							})
+						}
 						icon={<Maximize2 className="h-4 w-4" />}
 					>
 						Upscale 4K
