@@ -189,7 +189,16 @@ const queueImpl: FastifyPluginAsync = async (app: FastifyInstance) => {
 		const worker = new Worker<PathBRenderJobData, PathBRenderJobReturn>(
 			"path-b-render",
 			async (job) => processPathBRenderJob(app, job),
-			{ connection: redis, concurrency: 1 },
+			{
+				connection: redis,
+				concurrency: 1,
+				// FFmpeg subprocesses can block the event loop for 30-60s during
+				// large transcodes; default lockDuration 30s caused BullMQ to mark
+				// jobs stalled mid-render. Render shouldn't take more than 15min
+				// total — set lock 20min to give plenty of slack.
+				lockDuration: 20 * 60 * 1000,
+				stalledInterval: 60 * 1000,
+			},
 		);
 		worker.on("failed", (job, err) => {
 			app.log.error({ jobId: job?.id, err }, "path-b-render worker job failed");

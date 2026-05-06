@@ -133,21 +133,34 @@ export async function renderPathBFinal(
 			"path-b render: start",
 		);
 
-		// 1. Download + transcode each replacement clip to canonical format (matched
-		//    aspect, h264, fixed duration). Skips scenes without replacement (those
-		//    fall back to a black canvas with the same duration so timing aligns).
+		// 1. Cache each unique replacement clip ONCE (rotation maps reuse 3 keys
+		//    across 52 scenes — without caching we'd download the same 928MB file
+		//    17 times). On Fly's tmpfs `/tmp`, each on-disk byte counts toward RSS,
+		//    so caching is the difference between a 4GB-machine OOM and fitting
+		//    comfortably.
+		const inputCache = new Map<string, string>();
+		const uniqueKeys = [...new Set(Object.values(params.replacementR2KeysByScene))];
+		for (let i = 0; i < uniqueKeys.length; i++) {
+			const key = uniqueKeys[i]!;
+			const localPath = join(workDir, `cached-${i}.mp4`);
+			ctx.logger.info({ jobId: params.jobId, key, idx: i }, "render: caching replacement clip");
+			await downloadR2(ctx.r2, ctx.r2Buckets.uploads, key, localPath);
+			inputCache.set(key, localPath);
+		}
+
+		// 2. Per scene transcode to canonical {w,h}/h264/30fps/duration. Black canvas
+		//    fallback when no replacement.
 		const transcodedPaths: string[] = [];
 		for (const scene of params.scenes) {
 			const replacementKey = params.replacementR2KeysByScene[scene.id];
-			const inputPath = join(workDir, `in-${scene.id}.mp4`);
+			const cachedInput = replacementKey ? inputCache.get(replacementKey) : null;
 			const outPath = join(workDir, `clip-${scene.order}.mp4`);
 
-			if (replacementKey) {
-				await downloadR2(ctx.r2, ctx.r2Buckets.uploads, replacementKey, inputPath);
+			if (cachedInput) {
 				await runCmd(
 					"ffmpeg",
 					[
-						"-y", "-i", inputPath,
+						"-y", "-i", cachedInput,
 						"-t", scene.durationSec.toFixed(3),
 						"-vf", `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`,
 						"-r", "30",
@@ -170,6 +183,13 @@ export async function renderPathBFinal(
 				);
 			}
 			transcodedPaths.push(outPath);
+		}
+
+		// 3. Free cached input clips before concat — large source files no longer
+		//    needed once each scene is transcoded. On a 4GB machine this can free
+		//    1-2GB right when the next stage's FFmpeg starts demanding memory.
+		for (const cached of inputCache.values()) {
+			await rm(cached, { force: true }).catch(() => {});
 		}
 
 		// 2. Concat transcoded clips via demuxer (all share same codec/dimensions).
