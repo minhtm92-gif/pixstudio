@@ -218,6 +218,86 @@ export const pathBRoutes: FastifyPluginAsyncZod = async (app) => {
 		},
 	});
 
+	// GET /projects/:projectId/stock-keywords — derive Envato search URL per
+	// scene from the Project's *current* editor state (which already reflects
+	// step-2 translate output — EN scripts give better Envato results than the
+	// original VN). Used by the Replace-cảnh manual loop.
+	app.get("/projects/:projectId/stock-keywords", {
+		schema: { params: z.object({ projectId: z.string().uuid() }) },
+		handler: async (req, reply) => {
+			const user = requireUser(req, reply);
+			if (!user) return;
+			const project = await app.prisma.project.findUnique({
+				where: { id: req.params.projectId },
+				select: { id: true, workspaceId: true, editorStateJson: true },
+			});
+			if (!project) {
+				reply.code(404);
+				return { error: "Project not found" };
+			}
+			const state = project.editorStateJson as
+				| {
+					timeline?: {
+						scenes?: Array<{
+							id: string;
+							order: number;
+							durationSec: number;
+							script?: string;
+							mediaQuery?: string;
+							mood?: string | null;
+							objects?: string[];
+						}>;
+					};
+				}
+				| null;
+			const scenes = state?.timeline?.scenes ?? [];
+			const STOP_WORDS = new Set([
+				"the", "a", "an", "and", "or", "but", "for", "with", "from", "into",
+				"of", "to", "in", "on", "at", "by", "is", "was", "are", "were",
+				"be", "been", "being", "this", "that", "these", "those", "it",
+				"its", "as", "if", "so", "not", "no", "do", "does", "did", "have",
+				"has", "had", "will", "would", "can", "could", "should", "you",
+				"your", "we", "our", "they", "their", "i", "my",
+			]);
+			const items = scenes.map((s) => {
+				// Prefer Stage 5 objects when available; else extract content words
+				// from the (translated) script.
+				let keywords: string[] = (s.objects ?? []).slice(0, 4);
+				if (keywords.length === 0 && s.script) {
+					const words = s.script
+						.toLowerCase()
+						.replace(/[^\p{L}\s]/gu, " ")
+						.split(/\s+/)
+						.filter((w) => w.length >= 4 && !STOP_WORDS.has(w));
+					const seen = new Set<string>();
+					keywords = [];
+					for (const w of words) {
+						if (seen.has(w)) continue;
+						seen.add(w);
+						keywords.push(w);
+						if (keywords.length >= 4) break;
+					}
+				}
+				const queryStr = keywords.join(" ");
+				const envatoSearchUrl = queryStr
+					? `https://elements.envato.com/stock-video/${encodeURIComponent(queryStr)}`
+					: null;
+				return {
+					sceneId: s.id,
+					order: s.order,
+					durationSec: s.durationSec,
+					script: s.script ?? "",
+					description: s.mediaQuery ?? "",
+					mood: s.mood ?? null,
+					objects: s.objects ?? [],
+					keywords,
+					envatoSearchUrl,
+				};
+			});
+			return { projectId: project.id, items };
+		},
+	});
+
 	// GET /jobs/:id/stock-keywords — derive Envato Elements search URL per scene
 	// from the visual analysis stage 5 output. Frontend / curl helper consumes
 	// this to render the Replace-cảnh manual loop.
