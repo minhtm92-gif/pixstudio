@@ -53,6 +53,39 @@ function insertSentencePauses(text: string): string {
 	return text.replace(/([.!?])\s+(?=[A-ZÀ-ỹ])/g, "$1 (ngừng) ");
 }
 
+/**
+ * Run a per-item async worker with bounded concurrency. Items finish in any
+ * order; `onProgress` ticks each time a worker resolves. Errors are caught per
+ * item (caller decides what to do) so one failure doesn't break the pool.
+ */
+async function runWithConcurrency<T, R>(
+	items: T[],
+	concurrency: number,
+	worker: (item: T, index: number) => Promise<R | undefined>,
+	onProgress?: (done: number, total: number) => void,
+): Promise<Array<R | undefined>> {
+	const results: Array<R | undefined> = new Array(items.length);
+	let nextIndex = 0;
+	let doneCount = 0;
+	const lanes = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+		while (true) {
+			const idx = nextIndex++;
+			if (idx >= items.length) return;
+			try {
+				results[idx] = await worker(items[idx]!, idx);
+			} catch {
+				results[idx] = undefined;
+			}
+			doneCount++;
+			onProgress?.(doneCount, items.length);
+		}
+	});
+	await Promise.all(lanes);
+	return results;
+}
+
+const PER_SCENE_CONCURRENCY = 4;
+
 export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScriptProps) {
 	const scenes =
 		((editorState?.["timeline"] as { scenes?: Scene[] })?.scenes ?? [])
@@ -167,15 +200,13 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 		const sourceLang = targetLang === "vi" ? "en" : "vi";
 		setTranslateBusy(true);
 		setTranslateProgress({ done: 0, total: scenes.length });
-		// Translate per scene so each LLM call is small enough to land in seconds —
-		// batching all 52 at once exceeded 120s and aborted mid-flight. We update
-		// the editor state incrementally after each scene so the user sees progress
-		// and a partial failure leaves the rest of the work intact.
 		const translatedById = new Map<string, string>();
 		try {
-			for (let i = 0; i < scenes.length; i++) {
-				const scene = scenes[i]!;
-				try {
+			await runWithConcurrency(
+				scenes,
+				PER_SCENE_CONCURRENCY,
+				async (scene) => {
+					if (!scene.script || scene.script.trim().length === 0) return;
 					const res = await apiFetch<{ segments: Array<{ text: string }> }>(
 						"/api/captions/translate",
 						{
@@ -190,11 +221,9 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 					);
 					const newText = res.segments[0]?.text;
 					if (newText) translatedById.set(scene.id, newText);
-				} catch (sceneErr) {
-					console.warn(`Translate scene ${scene.id} failed:`, sceneErr);
-				}
-				setTranslateProgress({ done: i + 1, total: scenes.length });
-			}
+				},
+				(done, total) => setTranslateProgress({ done, total }),
+			);
 			const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
 			const updatedScenes = scenes.map((s) => ({
 				...s,
@@ -219,18 +248,13 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 		if (scenes.length === 0) return;
 		setVoiceOverBusy(true);
 		setVoiceOverProgress({ done: 0, total: scenes.length });
-		// Per-scene TTS so each call stays under ElevenLabs 5000-char single
-		// request limit + finishes in seconds. Render endpoint concats per-scene
-		// MP3s into final voice-over track.
 		const voiceOverByScene: Record<string, string> = {};
 		try {
-			for (let i = 0; i < scenes.length; i++) {
-				const scene = scenes[i]!;
-				if (!scene.script || scene.script.trim().length === 0) {
-					setVoiceOverProgress({ done: i + 1, total: scenes.length });
-					continue;
-				}
-				try {
+			await runWithConcurrency(
+				scenes,
+				PER_SCENE_CONCURRENCY,
+				async (scene) => {
+					if (!scene.script || scene.script.trim().length === 0) return;
 					const res = await apiFetch<{ r2Key: string; signedUrl: string; costUsd: number }>(
 						"/api/captions/voice-over",
 						{
@@ -243,11 +267,9 @@ export function TabEditScript({ projectId, editorState, onUpdate }: TabEditScrip
 						} as RequestInit & { timeoutMs?: number },
 					);
 					voiceOverByScene[scene.id] = res.r2Key;
-				} catch (sceneErr) {
-					console.warn(`Voice over scene ${scene.id} failed:`, sceneErr);
-				}
-				setVoiceOverProgress({ done: i + 1, total: scenes.length });
-			}
+				},
+				(done, total) => setVoiceOverProgress({ done, total }),
+			);
 			const ts = (editorState?.["timeline"] as Record<string, unknown>) ?? {};
 			onUpdate({
 				...editorState,

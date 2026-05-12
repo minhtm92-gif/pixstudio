@@ -252,6 +252,20 @@ const PER_VIDEO_DURATION_CAP_SEC_BY_TIER: Record<"STANDARD" | "PRO" | "MAX", num
 	MAX: 30 * 60,
 };
 
+/**
+ * Stage 5 visual analysis cap. Each scene = 1 Gemini multimodal call (~$0.002).
+ * Old hardcoded cap=20 silently dropped scenes 21+ for any merged scene count
+ * above 20 (typical 16-min PRO output ≈ 50-60 scenes), so downstream
+ * mediaQuery/objects/mood were empty for the majority of the timeline.
+ * Tier-aware: STANDARD short videos rarely need >20 anyway; PRO/MAX cover the
+ * full merged scene count of typical Path B reverse-engineer jobs.
+ */
+const VISUAL_ANALYSIS_CAP_BY_TIER: Record<"STANDARD" | "PRO" | "MAX", number> = {
+	STANDARD: 20,
+	PRO: 60,
+	MAX: 100,
+};
+
 export function mergeShortScenes(scenes: SceneBoundary[]): SceneBoundary[] {
 	if (scenes.length <= 1) return scenes;
 	const merged: SceneBoundary[] = [];
@@ -454,12 +468,18 @@ async function stage5VisualAnalysis(
 		return [];
 	}
 
-	ctx.logger.info({ jobId: ctx.jobId, sceneCount: scenes.length }, "stage 5 — Gemini visual analysis");
+	const tier = ctx.tier ?? "PRO";
+	const visualCap = VISUAL_ANALYSIS_CAP_BY_TIER[tier];
+	const willAnalyze = Math.min(scenes.length, visualCap);
+	const willSkip = Math.max(0, scenes.length - visualCap);
+	ctx.logger.info(
+		{ jobId: ctx.jobId, sceneCount: scenes.length, tier, visualCap, willAnalyze, willSkip },
+		"stage 5 — Gemini visual analysis",
+	);
 	const videoPath = join(workDir, "video.mp4");
 	const results: PathBExtraction["visualAnalysis"] = [];
 
-	for (const scene of scenes.slice(0, 20)) {
-		// Cap at 20 scenes — long videos cost too much
+	for (const scene of scenes.slice(0, visualCap)) {
 		const keyframePath = join(workDir, `keyframe-${scene.id}.jpg`);
 		const midSec = scene.startSec + scene.durationSec / 2;
 		try {
