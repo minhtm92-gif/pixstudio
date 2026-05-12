@@ -18,9 +18,11 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import type { S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -142,15 +144,11 @@ async function stage1Download(ctx: PipelineContext, workDir: string): Promise<{ 
 			new GetObjectCommand({ Bucket: ctx.r2Buckets.uploads, Key: r2Key }),
 		);
 		if (!obj.Body) throw new Error(`R2 object ${r2Key} has no body`);
-		// Stream R2 body → local file
-		const chunks: Uint8Array[] = [];
+		// Stream R2 body → local file (avoids buffering 2GB sources in RSS).
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		for await (const chunk of obj.Body as any) {
-			chunks.push(chunk as Uint8Array);
-		}
-		const buf = Buffer.concat(chunks);
-		await writeFile(videoPath, buf);
-		ctx.logger.info({ jobId: ctx.jobId, videoSize: buf.length }, "stage 1 R2 download done");
+		await pipeline(obj.Body as any, createWriteStream(videoPath));
+		const downloadStat = await stat(videoPath);
+		ctx.logger.info({ jobId: ctx.jobId, videoSize: downloadStat.size }, "stage 1 R2 download done");
 	} else {
 		ctx.logger.info({ jobId: ctx.jobId, sourceUrl: ctx.sourceUrl }, "stage 1 — yt-dlp download");
 		// yt-dlp: best mp4, force mp4 container
@@ -174,13 +172,13 @@ async function stage1Download(ctx: PipelineContext, workDir: string): Promise<{ 
 	const audioR2Key = `path-b/${ctx.jobId}/source.mp3`;
 
 	if (ctx.r2) {
-		const videoBuf = await readFile(videoPath);
-		const audioBuf = await readFile(audioPath);
+		const [videoStatUp, audioStatUp] = await Promise.all([stat(videoPath), stat(audioPath)]);
 		await ctx.r2.send(
 			new PutObjectCommand({
 				Bucket: ctx.r2Buckets.derived,
 				Key: videoR2Key,
-				Body: videoBuf,
+				Body: createReadStream(videoPath),
+				ContentLength: videoStatUp.size,
 				ContentType: "video/mp4",
 			}),
 		);
@@ -188,7 +186,8 @@ async function stage1Download(ctx: PipelineContext, workDir: string): Promise<{ 
 			new PutObjectCommand({
 				Bucket: ctx.r2Buckets.derived,
 				Key: audioR2Key,
-				Body: audioBuf,
+				Body: createReadStream(audioPath),
+				ContentLength: audioStatUp.size,
 				ContentType: "audio/mpeg",
 			}),
 		);

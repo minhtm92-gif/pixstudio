@@ -14,7 +14,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
@@ -205,6 +206,11 @@ export async function renderPathBFinal(
 			120_000,
 		);
 
+		// Free per-scene transcoded outputs (~50MB × N) — they are baked into
+		// videoConcatPath and never read again. Drops the biggest contributor to
+		// tmpfs RSS right before final mux's allocation spike.
+		await Promise.all(transcodedPaths.map((p) => rm(p, { force: true }).catch(() => {})));
+
 		// 3. Voice-over audio. Per-scene map (preferred) → download each MP3 in
 		// scene order then ffmpeg-concat → single voice-over track. Legacy single
 		// `voiceOverR2Key` still supported for callers that pre-merged.
@@ -258,26 +264,29 @@ export async function renderPathBFinal(
 		];
 		await runCmd("ffmpeg", finalArgs, 600_000);
 
-		// 6. Upload to R2 renders bucket.
-		const buf = await readFile(outputPath);
+		// 6. Upload to R2 renders bucket via filesystem stream — avoids loading
+		// the entire output MP4 (can be 100MB+ for 16-min videos) into RSS right
+		// at the workdir's peak disk usage.
 		const renderR2Key = `renders/path-b/${params.projectId}/${params.jobId}.mp4`;
+		const outputStat = await stat(outputPath);
 		await ctx.r2.send(
 			new PutObjectCommand({
 				Bucket: ctx.r2Buckets.renders,
 				Key: renderR2Key,
-				Body: buf,
+				Body: createReadStream(outputPath),
+				ContentLength: outputStat.size,
 				ContentType: "video/mp4",
 			}),
 		);
 		ctx.logger.info(
-			{ jobId: params.jobId, renderR2Key, sizeBytes: buf.length, totalDuration },
+			{ jobId: params.jobId, renderR2Key, sizeBytes: outputStat.size, totalDuration },
 			"path-b render: done",
 		);
 
 		return {
 			renderR2Key,
 			durationSec: totalDuration,
-			sizeBytes: buf.length,
+			sizeBytes: outputStat.size,
 		};
 	} finally {
 		await rm(workDir, { recursive: true, force: true }).catch(() => {});
